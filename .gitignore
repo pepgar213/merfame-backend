@@ -1,0 +1,78 @@
+# .gitignore
+
+# ============================================
+# ARCHIVOS DE CONFIGURACIÓN SENSIBLES
+# ============================================
+.env
+.env.local
+.env.production
+.env.*.local
+
+# ============================================
+# NODE
+# ============================================
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# ============================================
+# BASE DE DATOS
+# ============================================
+*.db
+*.sqlite
+*.sqlite3
+database.db
+
+# ============================================
+# ARCHIVOS TEMPORALES Y LOGS
+# ============================================
+logs/
+*.log
+log_python.txt
+temp/
+tmp/
+
+# ============================================
+# ARCHIVOS PÚBLICOS/SUBIDOS POR USUARIOS
+# ============================================
+public/audio/*.mp3
+public/audio/*.wav
+public/images/*
+public/waveforms/*
+public/timestamps/*
+
+# Mantener las carpetas pero no el contenido
+!public/audio/.gitkeep
+!public/images/.gitkeep
+!public/waveforms/.gitkeep
+!public/timestamps/.gitkeep
+
+# ============================================
+# SISTEMA OPERATIVO
+# ============================================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# ============================================
+# IDEs
+# ============================================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ============================================
+# PYTHON
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+merfame/
