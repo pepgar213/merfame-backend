@@ -18,12 +18,16 @@ const __dirname = dirname(__filename);
 const PUBLIC_DIR = join(__dirname, '..', '..', 'public');
 const execPromise = util.promisify(exec);
 
+const redisConfig = process.env.REDIS_URL 
+  ? process.env.REDIS_URL 
+  : {
+      host: process.env.REDIS_HOST || '127.0.0.1',
+      port: parseInt(process.env.REDIS_PORT || '6379'),
+    };
+
+
 // Crear la cola de trabajos
-export const songQueue = new Queue('song-processing', {
-  redis: {
-    host: process.env.REDIS_HOST,
-    port: process.env.REDIS_PORT
-  },
+export const songQueue = new Queue('song-processing', redisConfig, {
   settings: {
     stalledInterval: 30000,
     maxStalledCount: 1,
@@ -31,9 +35,14 @@ export const songQueue = new Queue('song-processing', {
     lockRenewTime: 150000,
   },
   defaultJobOptions: {
-    removeOnComplete: 100,
-    removeOnFail: 200,
-  }
+    attempts: 3,
+    backoff: {
+      type: 'exponential',
+      delay: 5000,
+    },
+    removeOnComplete: false,
+    removeOnFail: false,
+  },
 });
 
 // Función para insertar canción en DB - CORREGIDA
