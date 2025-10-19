@@ -1,293 +1,321 @@
 // src/db/schema.js
-import db from './index.js';
+import db, { usePostgres } from './connection.js';
 
-export const createTables = () => {
-  db.serialize(() => {
-    // 1. Crear la tabla 'users' si no existe
-    db.run(`
+export const createTables = async () => {
+  console.log(`\n🏗️  Iniciando creación de tablas (${usePostgres ? 'PostgreSQL' : 'SQLite'})...`);
+  
+  if (usePostgres) {
+    await createTablesPostgres();
+  } else {
+    await createTablesSQLite();
+  }
+  
+  console.log('✅ Todas las tablas creadas/verificadas correctamente\n');
+};
+
+// ==========================================
+// POSTGRESQL SCHEMA
+// ==========================================
+const createTablesPostgres = async () => {
+  try {
+    // 1. Tabla users
+    await db.query(`
       CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE NOT NULL,
-        username TEXT UNIQUE NOT NULL,
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        username VARCHAR(255) UNIQUE NOT NULL,
         password TEXT NOT NULL,
-        role TEXT DEFAULT 'listener' NOT NULL,
-        is_verified INTEGER DEFAULT 0,
+        role VARCHAR(50) DEFAULT 'listener' NOT NULL,
+        is_verified BOOLEAN DEFAULT FALSE,
         verification_token TEXT,
-        bio TEXT
+        bio TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
-    `, (err) => {
-      if (err) {
-        console.error("Error al crear la tabla 'users':", err.message);
-      } else {
-        console.log("Tabla 'users' verificada/creada.");
+    `);
+    console.log('  ✓ users');
 
-        // Verificar y añadir columnas adicionales si no existen
-        db.all(`PRAGMA table_info(users);`, (err, rows) => {
-          if (err) {
-            console.error("Error al verificar la información de la tabla 'users':", err.message);
-            return;
-          }
-
-          if (!Array.isArray(rows)) {
-            console.error("Error: PRAGMA table_info no devolvió un array.", rows);
-            return;
-          }
-
-          const hasRoleColumn = rows.some(row => row.name === 'role');
-          const hasBioColumn = rows.some(row => row.name === 'bio');
-          const hasUsernameColumn = rows.some(row => row.name === 'username');
-          const hasIsVerifiedColumn = rows.some(row => row.name === 'is_verified');
-          const hasVerificationTokenColumn = rows.some(row => row.name === 'verification_token');
-
-          if (!hasRoleColumn) {
-            db.run(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'listener' NOT NULL;`, (alterErr) => {
-              if (alterErr) {
-                console.error("Error al añadir la columna 'role' a la tabla 'users':", alterErr.message);
-              } else {
-                console.log("Columna 'role' añadida a la tabla 'users'.");
-              }
-            });
-          }
-
-          // Añadir columna bio si no existe
-          if (!hasBioColumn) {
-            db.run(`ALTER TABLE users ADD COLUMN bio TEXT;`, (alterErr) => {
-              if (alterErr) {
-                console.error("Error al añadir la columna 'bio' a la tabla 'users':", alterErr.message);
-              } else {
-                console.log("Columna 'bio' añadida a la tabla 'users'.");
-              }
-            });
-          }
-
-          // Añadir columna username si no existe
-          if (!hasUsernameColumn) {
-            db.run(`ALTER TABLE users ADD COLUMN username TEXT;`, (alterErr) => {
-              if (alterErr) {
-                console.error("Error al añadir la columna 'username' a la tabla 'users':", alterErr.message);
-              } else {
-                console.log("Columna 'username' añadida a la tabla 'users'.");
-              }
-            });
-          }
-
-          // Añadir columna is_verified si no existe
-          if (!hasIsVerifiedColumn) {
-            db.run(`ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0;`, (alterErr) => {
-              if (alterErr) {
-                console.error("Error al añadir la columna 'is_verified':", alterErr.message);
-              } else {
-                console.log("Columna 'is_verified' añadida.");
-              }
-            });
-          }
-
-          // Añadir columna verification_token si no existe
-          if (!hasVerificationTokenColumn) {
-            db.run(`ALTER TABLE users ADD COLUMN verification_token TEXT;`, (alterErr) => {
-              if (alterErr) {
-                console.error("Error al añadir la columna 'verification_token':", alterErr.message);
-              } else {
-                console.log("Columna 'verification_token' añadida.");
-              }
-            });
-          }
-        });
-      }
-    });
-
-
-    // 2. Crear la tabla 'artists'
-    db.run(`
+    // 2. Tabla artists
+    await db.query(`
       CREATE TABLE IF NOT EXISTS artists (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER UNIQUE NOT NULL,
-        name TEXT NOT NULL,
-        genre TEXT,
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        genre VARCHAR(255),
         bio TEXT,
         image_url TEXT,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        spotify_id VARCHAR(255) UNIQUE,
+        spotify_profile_url TEXT,
+        spotify_display_name VARCHAR(255),
+        spotify_email VARCHAR(255),
+        spotify_country VARCHAR(10),
+        spotify_followers INTEGER,
+        spotify_images TEXT,
+        spotify_uri VARCHAR(255),
+        spotify_popularity INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
-    `, (err) => {
-      if (err) {
-        console.error("Error al crear la tabla 'artists':", err.message);
-      } else {
-        console.log("Tabla 'artists' verificada/creada.");
+    `);
+    console.log('  ✓ artists');
 
-        db.all(`PRAGMA table_info(artists);`, (err, rows) => {
-          if (err) {
-            console.error("Error al verificar la información de la tabla 'artists':", err.message);
-            return;
-          }
-          
-          // Añadir columnas de Spotify si no existen
-          const spotifyColumns = [
-            { name: 'spotify_id', type: 'TEXT' },
-            { name: 'spotify_profile_url', type: 'TEXT' },
-            { name: 'spotify_display_name', type: 'TEXT' },
-            { name: 'spotify_email', type: 'TEXT' },
-            { name: 'spotify_country', type: 'TEXT' },
-            { name: 'spotify_followers', type: 'INTEGER' },
-            { name: 'spotify_images', type: 'TEXT' },
-            { name: 'spotify_uri', type: 'TEXT' },
-            { name: 'spotify_popularity', type: 'INTEGER' }
-          ];
-
-          spotifyColumns.forEach(column => {
-            const columnExists = rows.some(row => row.name === column.name);
-            if (!columnExists) {
-              db.run(`ALTER TABLE artists ADD COLUMN ${column.name} ${column.type};`, (alterErr) => {
-                if (alterErr) {
-                  console.error(`Error al añadir la columna '${column.name}':`, alterErr.message);
-                } else {
-                  console.log(`Columna '${column.name}' añadida a la tabla 'artists'.`);
-                }
-              });
-            }
-          });
-        });
-      }
-    });
-
-    // 3. Crear la tabla 'music_tracks'
-    db.run(`
+    // 3. Tabla music_tracks
+    await db.query(`
       CREATE TABLE IF NOT EXISTS music_tracks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        artist_id INTEGER NOT NULL,
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        artist_id INTEGER NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
         audio_url TEXT NOT NULL,
         cover_image_url TEXT,
         duration INTEGER,
         waveform_url TEXT,
         voice_timestamps_url TEXT,
-        spotify_id TEXT,
-        youtube_id TEXT,
-        FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE
+        spotify_id VARCHAR(255),
+        youtube_id VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
-    `, (err) => {
-      if (err) {
-        console.error("Error al crear la tabla 'music_tracks':", err.message);
-      } else {
-        console.log("Tabla 'music_tracks' verificada/creada.");
+    `);
+    console.log('  ✓ music_tracks');
 
-        // Verificar y añadir columnas spotify_id y youtube_id si no existen
-        db.all(`PRAGMA table_info(music_tracks);`, (err, rows) => {
-          if (err) {
-            console.error("Error al verificar la información de la tabla 'music_tracks':", err.message);
-            return;
-          }
-
-          const hasSpotifyIdColumn = rows.some(row => row.name === 'spotify_id');
-          const hasYoutubeIdColumn = rows.some(row => row.name === 'youtube_id');
-
-          if (!hasSpotifyIdColumn) {
-            db.run(`ALTER TABLE music_tracks ADD COLUMN spotify_id TEXT;`, (alterErr) => {
-              if (alterErr) {
-                console.error("Error al añadir la columna 'spotify_id' a la tabla 'music_tracks':", alterErr.message);
-              } else {
-                console.log("Columna 'spotify_id' añadida a la tabla 'music_tracks'.");
-              }
-            });
-          }
-
-          if (!hasYoutubeIdColumn) {
-            db.run(`ALTER TABLE music_tracks ADD COLUMN youtube_id TEXT;`, (alterErr) => {
-              if (alterErr) {
-                console.error("Error al añadir la columna 'youtube_id' a la tabla 'music_tracks':", alterErr.message);
-              } else {
-                console.log("Columna 'youtube_id' añadida a la tabla 'music_tracks'.");
-              }
-            });
-          }
-        });
-      }
-    });
-
-    // 4. Crear la tabla 'playlists'
-    db.run(`
+    // 4. Tabla playlists
+    await db.query(`
       CREATE TABLE IF NOT EXISTS playlists (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        name TEXT NOT NULL,
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
         description TEXT,
         cover_image_url TEXT,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
-    `, (err) => {
-      if (err) {
-        console.error("Error al crear la tabla 'playlists':", err.message);
-      } else {
-        console.log("Tabla 'playlists' verificada/creada.");
-      }
-    });
+    `);
+    console.log('  ✓ playlists');
 
-    // 5. Crear la tabla de unión para 'playlist_tracks'
-    db.run(`
+    // 5. Tabla playlist_tracks
+    await db.query(`
       CREATE TABLE IF NOT EXISTS playlist_tracks (
-        playlist_id INTEGER NOT NULL,
-        track_id INTEGER NOT NULL,
-        PRIMARY KEY (playlist_id, track_id),
-        FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
-        FOREIGN KEY (track_id) REFERENCES music_tracks(id) ON DELETE CASCADE
+        playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+        track_id INTEGER NOT NULL REFERENCES music_tracks(id) ON DELETE CASCADE,
+        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (playlist_id, track_id)
       );
-    `, (err) => {
-      if (err) {
-        console.error("Error al crear la tabla 'playlist_tracks':", err.message);
-      } else {
-        console.log("Tabla 'playlist_tracks' verificada/creada.");
-      }
-    });
+    `);
+    console.log('  ✓ playlist_tracks');
 
-    // 6. Crear la tabla 'user_likes_song' para registrar los 'me gusta' de los usuarios a las canciones
-    db.run(`
+    // 6. Tabla user_likes_song
+    await db.query(`
       CREATE TABLE IF NOT EXISTS user_likes_song (
-        user_id INTEGER NOT NULL,
-        song_id INTEGER NOT NULL,
-        PRIMARY KEY (user_id, song_id),
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (song_id) REFERENCES music_tracks(id) ON DELETE CASCADE
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        song_id INTEGER NOT NULL REFERENCES music_tracks(id) ON DELETE CASCADE,
+        liked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, song_id)
       );
-    `, (err) => {
-      if (err) {
-        console.error("Error al crear la tabla 'user_likes_song':", err.message);
-      } else {
-        console.log("Tabla 'user_likes_song' verificada/creada.");
-      }
-    });
+    `);
+    console.log('  ✓ user_likes_song');
 
-    // 7. Crear la tabla 'user_follows_artist' para registrar los 'seguimientos' de usuarios a artistas
-    db.run(`
+    // 7. Tabla user_follows_artist
+    await db.query(`
       CREATE TABLE IF NOT EXISTS user_follows_artist (
-        user_id INTEGER NOT NULL,
-        artist_id INTEGER NOT NULL,
-        PRIMARY KEY (user_id, artist_id),
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        artist_id INTEGER NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+        followed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, artist_id)
       );
-    `, (err) => {
-      if (err) {
-        console.error("Error al crear la tabla 'user_follows_artist':", err.message);
-      } else {
-        console.log("Tabla 'user_follows_artist' verificada/creada.");
-      }
-    });
+    `);
+    console.log('  ✓ user_follows_artist');
 
-    // 8. Crear la tabla 'user_dislikes_song' para registrar los 'no me gusta' de los usuarios a las canciones
-    db.run(`
+    // 8. Tabla user_dislikes_song
+    await db.query(`
       CREATE TABLE IF NOT EXISTS user_dislikes_song (
-        user_id INTEGER NOT NULL,
-        song_id INTEGER NOT NULL,
-        PRIMARY KEY (user_id, song_id),
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (song_id) REFERENCES music_tracks(id) ON DELETE CASCADE
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        song_id INTEGER NOT NULL REFERENCES music_tracks(id) ON DELETE CASCADE,
+        disliked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, song_id)
       );
-    `, (err) => {
-      if (err) {
-        console.error("Error al crear la tabla 'user_dislikes_song':", err.message);
-      } else {
-        console.log("Tabla 'user_dislikes_song' verificada/creada.");
-      }
-    });
+    `);
+    console.log('  ✓ user_dislikes_song');
 
+    // 9. Índices para mejorar performance
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+      CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+      CREATE INDEX IF NOT EXISTS idx_artists_user_id ON artists(user_id);
+      CREATE INDEX IF NOT EXISTS idx_artists_spotify_id ON artists(spotify_id);
+      CREATE INDEX IF NOT EXISTS idx_music_tracks_artist_id ON music_tracks(artist_id);
+      CREATE INDEX IF NOT EXISTS idx_playlists_user_id ON playlists(user_id);
+    `);
+    console.log('  ✓ índices de performance');
+
+  } catch (error) {
+    console.error('❌ Error creando tablas PostgreSQL:', error.message);
+    throw error;
+  }
+};
+
+// ==========================================
+// SQLITE SCHEMA (Para desarrollo local)
+// ==========================================
+const createTablesSQLite = () => {
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      // 1. Tabla users
+      db.run(`
+        CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          email TEXT UNIQUE NOT NULL,
+          username TEXT UNIQUE NOT NULL,
+          password TEXT NOT NULL,
+          role TEXT DEFAULT 'listener' NOT NULL,
+          is_verified INTEGER DEFAULT 0,
+          verification_token TEXT,
+          bio TEXT
+        );
+      `, (err) => {
+        if (err) {
+          console.error("❌ Error creando tabla 'users':", err.message);
+          return reject(err);
+        }
+        console.log("  ✓ users");
+      });
+
+      // 2. Tabla artists
+      db.run(`
+        CREATE TABLE IF NOT EXISTS artists (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          genre TEXT,
+          bio TEXT,
+          image_url TEXT,
+          spotify_id TEXT UNIQUE,
+          spotify_profile_url TEXT,
+          spotify_display_name TEXT,
+          spotify_email TEXT,
+          spotify_country TEXT,
+          spotify_followers INTEGER,
+          spotify_images TEXT,
+          spotify_uri TEXT,
+          spotify_popularity INTEGER,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+      `, (err) => {
+        if (err) {
+          console.error("❌ Error creando tabla 'artists':", err.message);
+          return reject(err);
+        }
+        console.log("  ✓ artists");
+      });
+
+      // 3. Tabla music_tracks
+      db.run(`
+        CREATE TABLE IF NOT EXISTS music_tracks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          artist_id INTEGER NOT NULL,
+          audio_url TEXT NOT NULL,
+          cover_image_url TEXT,
+          duration INTEGER,
+          waveform_url TEXT,
+          voice_timestamps_url TEXT,
+          spotify_id TEXT,
+          youtube_id TEXT,
+          FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE
+        );
+      `, (err) => {
+        if (err) {
+          console.error("❌ Error creando tabla 'music_tracks':", err.message);
+          return reject(err);
+        }
+        console.log("  ✓ music_tracks");
+      });
+
+      // 4. Tabla playlists
+      db.run(`
+        CREATE TABLE IF NOT EXISTS playlists (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT,
+          cover_image_url TEXT,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+      `, (err) => {
+        if (err) {
+          console.error("❌ Error creando tabla 'playlists':", err.message);
+          return reject(err);
+        }
+        console.log("  ✓ playlists");
+      });
+
+      // 5. Tabla playlist_tracks
+      db.run(`
+        CREATE TABLE IF NOT EXISTS playlist_tracks (
+          playlist_id INTEGER NOT NULL,
+          track_id INTEGER NOT NULL,
+          PRIMARY KEY (playlist_id, track_id),
+          FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+          FOREIGN KEY (track_id) REFERENCES music_tracks(id) ON DELETE CASCADE
+        );
+      `, (err) => {
+        if (err) {
+          console.error("❌ Error creando tabla 'playlist_tracks':", err.message);
+          return reject(err);
+        }
+        console.log("  ✓ playlist_tracks");
+      });
+
+      // 6. Tabla user_likes_song
+      db.run(`
+        CREATE TABLE IF NOT EXISTS user_likes_song (
+          user_id INTEGER NOT NULL,
+          song_id INTEGER NOT NULL,
+          PRIMARY KEY (user_id, song_id),
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (song_id) REFERENCES music_tracks(id) ON DELETE CASCADE
+        );
+      `, (err) => {
+        if (err) {
+          console.error("❌ Error creando tabla 'user_likes_song':", err.message);
+          return reject(err);
+        }
+        console.log("  ✓ user_likes_song");
+      });
+
+      // 7. Tabla user_follows_artist
+      db.run(`
+        CREATE TABLE IF NOT EXISTS user_follows_artist (
+          user_id INTEGER NOT NULL,
+          artist_id INTEGER NOT NULL,
+          PRIMARY KEY (user_id, artist_id),
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE
+        );
+      `, (err) => {
+        if (err) {
+          console.error("❌ Error creando tabla 'user_follows_artist':", err.message);
+          return reject(err);
+        }
+        console.log("  ✓ user_follows_artist");
+      });
+
+      // 8. Tabla user_dislikes_song
+      db.run(`
+        CREATE TABLE IF NOT EXISTS user_dislikes_song (
+          user_id INTEGER NOT NULL,
+          song_id INTEGER NOT NULL,
+          PRIMARY KEY (user_id, song_id),
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (song_id) REFERENCES music_tracks(id) ON DELETE CASCADE
+        );
+      `, (err) => {
+        if (err) {
+          console.error("❌ Error creando tabla 'user_dislikes_song':", err.message);
+          return reject(err);
+        }
+        console.log("  ✓ user_dislikes_song");
+        resolve();
+      });
+    });
   });
 };

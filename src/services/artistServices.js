@@ -1,21 +1,23 @@
 // src/services/artistServices.js
-import db from '../db/index.js';
+import { query, run, get } from '../db/queryHelper.js';
 
+// ==========================================
+// GET ARTIST BY SPOTIFY ID
+// ==========================================
 export const getArtistBySpotifyId = async (spotifyId) => {
   try {
     console.log('ArtistService: Buscando artista con Spotify ID:', spotifyId);
     
-    const query = `
-      SELECT user_id, spotify_id, spotify_display_name 
-      FROM artists 
-      WHERE spotify_id = $1
-    `;
+    const artist = await get(
+      `SELECT user_id, spotify_id, spotify_display_name 
+       FROM artists 
+       WHERE spotify_id = ?`,
+      [spotifyId]
+    );
     
-    const result = await db.query(query, [spotifyId]);
-    
-    if (result.rows.length > 0) {
-      console.log('ArtistService: Artista encontrado:', result.rows[0]);
-      return result.rows[0];
+    if (artist) {
+      console.log('ArtistService: Artista encontrado:', artist);
+      return artist;
     }
     
     console.log('ArtistService: No se encontró artista con Spotify ID:', spotifyId);
@@ -26,18 +28,17 @@ export const getArtistBySpotifyId = async (spotifyId) => {
   }
 };
 
+// ==========================================
+// UPDATE ARTIST SPOTIFY TOKENS
+// ==========================================
 export const updateArtistSpotifyTokens = async (userId, accessToken, refreshToken) => {
   try {
     console.log('ArtistService: Actualizando tokens para usuario:', userId);
     
-    const query = `
-      UPDATE artists 
-      SET spotify_access_token = $1, spotify_refresh_token = $2, updated_at = NOW()
-      WHERE user_id = $3
-    `;
+    // Nota: Los tokens ya no se guardan en la BD según tu arquitectura actual
+    // Este método se mantiene por compatibilidad pero puede ser eliminado
     
-    await db.query(query, [accessToken, refreshToken, userId]);
-    console.log('ArtistService: Tokens actualizados exitosamente');
+    console.log('ArtistService: Tokens se manejan en SharedPreferences del cliente');
   } catch (error) {
     console.error('ArtistService: ERROR actualizando tokens:', error);
     throw error;

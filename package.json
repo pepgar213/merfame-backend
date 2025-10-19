@@ -38,6 +38,7 @@
     "jsonwebtoken": "^9.0.2",
     "mv": "^2.1.1",
     "nodemailer": "^7.0.6",
+    "pg": "^8.16.3",
     "sqlite3": "^5.1.7",
     "uuid": "^11.1.0",
     "webrtcvad": "^1.0.1"
