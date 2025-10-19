@@ -15,14 +15,9 @@ export const sendVerificationEmail = async (email, token) => {
   const verificationUrl = `${BASE_URL}/api/verify-email?token=${token}`;
   
   try {
-    console.log('🔄 Intentando enviar email a:', email);
-    console.log('🔑 RESEND_API_KEY presente:', !!RESEND_API_KEY);
-    console.log('🔑 RESEND_API_KEY length:', RESEND_API_KEY?.length);
-    console.log('📤 From:', RESEND_FROM);
-    console.log('🌐 BASE_URL:', BASE_URL);
-    console.log('🌐 Verification URL:', verificationUrl);
+    console.log('🔄 Enviando email de verificación a:', email);
     
-    const data = await resend.emails.send({
+    const response = await resend.emails.send({
       from: RESEND_FROM,
       to: email,
       subject: 'Verifica tu cuenta en Merfame',
@@ -53,6 +48,7 @@ export const sendVerificationEmail = async (email, token) => {
                     </div>
                     <p>O copia esta URL en tu navegador:</p>
                     <p style="word-break: break-all; color: #FF5000;">${verificationUrl}</p>
+                    <p><strong>Nota:</strong> Este enlace expirará en 24 horas.</p>
                 </div>
                 <div class="footer">
                     <p>© 2025 Merfame. Todos los derechos reservados.</p>
@@ -63,44 +59,30 @@ export const sendVerificationEmail = async (email, token) => {
       `,
     });
 
-    console.log('📬 Resend devolvió:', JSON.stringify(data, null, 2));
-    console.log('📬 Tipo de data:', typeof data);
-    console.log('📬 Data keys:', data ? Object.keys(data) : 'data es null/undefined');
-    console.log('📬 Data.id:', data?.id);
-    console.log('📬 Data.error:', data?.error);
+    // ✅ Manejar el formato de respuesta de Resend correctamente
+    const emailId = response?.data?.id || response?.id;
     
-    if (!data) {
-      throw new Error('Resend devolvió null o undefined');
+    if (response?.error) {
+      throw new Error(`Error de Resend: ${JSON.stringify(response.error)}`);
     }
     
-    if (data.error) {
-      throw new Error(`Error de Resend: ${JSON.stringify(data.error)}`);
-    }
-    
-    if (!data.id) {
-      throw new Error(`Resend no devolvió un ID. Respuesta completa: ${JSON.stringify(data)}`);
+    if (!emailId) {
+      console.error('⚠️  Respuesta inesperada de Resend:', JSON.stringify(response));
+      throw new Error('Resend no devolvió un ID válido');
     }
 
-    console.log('✅ Email enviado exitosamente');
-    console.log('📧 Resend Response ID:', data.id);
+    console.log('✅ Email de verificación enviado exitosamente');
+    console.log('📧 Resend ID:', emailId);
     
-    return data;
+    return response;
   } catch (error) {
-    console.error('❌ ERROR enviando email:', error.message);
-    console.error('❌ Error name:', error.name);
-    console.error('❌ Error stack:', error.stack);
+    console.error('❌ Error enviando email de verificación:', error.message);
     
-    // Si el error tiene una respuesta HTTP
-    if (error.response) {
-      console.error('❌ HTTP Status:', error.response.status);
-      console.error('❌ HTTP Data:', JSON.stringify(error.response.data, null, 2));
-    }
-    
-    // Si es un error de la librería Resend
+    // Si el error tiene información adicional de Resend
     if (error.statusCode) {
       console.error('❌ Resend Status Code:', error.statusCode);
     }
     
-    throw new Error(`No se pudo enviar el email: ${error.message}`);
+    throw new Error(`No se pudo enviar el email de verificación: ${error.message}`);
   }
 };
