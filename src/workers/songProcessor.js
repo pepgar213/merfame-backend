@@ -11,6 +11,7 @@ import pkg from 'fft-js';
 const { fft, util: fftUtil } = pkg;
 import { runPythonScriptAndLog } from '../utils/pythonRunner.js';
 import path from 'path';
+import { run } from '../db/queryHelper.js'; 
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -36,46 +37,24 @@ export const songQueue = new Queue('song-processing', {
 });
 
 // Función para insertar canción en DB - CORREGIDA
-const insertSongIntoDb = (title, artistId, audioUrl, coverImageUrl, duration, waveformUrl, voiceTimestampsUrl, spotifyId, youtubeId) => {
-  return new Promise((resolve, reject) => {
-    // Verificar primero si las columnas existen
-    db.all(`PRAGMA table_info(music_tracks);`, (err, columns) => {
-      if (err) {
-        console.error("Error al verificar columnas:", err.message);
-        return reject(err);
-      }
-
-      const hasSpotifyId = columns.some(col => col.name === 'spotify_id');
-      const hasYoutubeId = columns.some(col => col.name === 'youtube_id');
-
-      let query;
-      let params;
-
-      if (hasSpotifyId && hasYoutubeId) {
-        // Si las columnas existen, incluirlas en el INSERT
-        query = `INSERT INTO music_tracks 
-                 (title, artist_id, audio_url, cover_image_url, duration, waveform_url, voice_timestamps_url, spotify_id, youtube_id) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-        params = [title, artistId, audioUrl, coverImageUrl, duration, waveformUrl, voiceTimestampsUrl, spotifyId, youtubeId];
-      } else {
-        // Si no existen, usar el INSERT original
-        query = `INSERT INTO music_tracks 
-                 (title, artist_id, audio_url, cover_image_url, duration, waveform_url, voice_timestamps_url) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`;
-        params = [title, artistId, audioUrl, coverImageUrl, duration, waveformUrl, voiceTimestampsUrl];
-        console.warn('[Worker] Advertencia: Las columnas spotify_id y/o youtube_id no existen en la tabla');
-      }
-
-      db.run(query, params, function(err) {
-        if (err) {
-          console.error("Error al insertar canción en DB:", err.message);
-          return reject(err);
-        }
-        console.log(`Canción insertada con ID: ${this.lastID}`);
-        resolve(this.lastID);
-      });
-    });
-  });
+const insertSongIntoDb = async (title, artistId, audioUrl, coverImageUrl, duration, waveformUrl, voiceTimestampsUrl, spotifyId, youtubeId) => {
+  try {
+    console.log(`[Worker] Insertando canción en DB con spotify_id: ${spotifyId}, youtube_id: ${youtubeId}`);
+    
+    const result = await run(
+      `INSERT INTO music_tracks 
+       (title, artist_id, audio_url, cover_image_url, duration, waveform_url, voice_timestamps_url, spotify_id, youtube_id) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [title, artistId, audioUrl, coverImageUrl, duration, waveformUrl, voiceTimestampsUrl, spotifyId || null, youtubeId || null]
+    );
+    
+    const songId = result.lastID;
+    console.log(`✅ Canción insertada con ID: ${songId}`);
+    return songId;
+  } catch (error) {
+    console.error("❌ Error al insertar canción en DB:", error.message);
+    throw error;
+  }
 };
 
 // Función para generar waveform
