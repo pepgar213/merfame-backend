@@ -17,8 +17,10 @@ export const sendVerificationEmail = async (email, token) => {
   try {
     console.log('🔄 Intentando enviar email a:', email);
     console.log('🔑 RESEND_API_KEY presente:', !!RESEND_API_KEY);
+    console.log('🔑 RESEND_API_KEY length:', RESEND_API_KEY?.length);
     console.log('📤 From:', RESEND_FROM);
     console.log('🌐 BASE_URL:', BASE_URL);
+    console.log('🌐 Verification URL:', verificationUrl);
     
     const data = await resend.emails.send({
       from: RESEND_FROM,
@@ -61,17 +63,44 @@ export const sendVerificationEmail = async (email, token) => {
       `,
     });
 
-    console.log('✅ Email enviado exitosamente');
-    console.log('📧 Resend Response ID:', data?.id);
+    console.log('📬 Resend devolvió:', JSON.stringify(data, null, 2));
+    console.log('📬 Tipo de data:', typeof data);
+    console.log('📬 Data keys:', data ? Object.keys(data) : 'data es null/undefined');
+    console.log('📬 Data.id:', data?.id);
+    console.log('📬 Data.error:', data?.error);
     
-    if (!data || !data.id) {
-      throw new Error('Resend no devolvió un ID de email válido');
+    if (!data) {
+      throw new Error('Resend devolvió null o undefined');
     }
+    
+    if (data.error) {
+      throw new Error(`Error de Resend: ${JSON.stringify(data.error)}`);
+    }
+    
+    if (!data.id) {
+      throw new Error(`Resend no devolvió un ID. Respuesta completa: ${JSON.stringify(data)}`);
+    }
+
+    console.log('✅ Email enviado exitosamente');
+    console.log('📧 Resend Response ID:', data.id);
     
     return data;
   } catch (error) {
     console.error('❌ ERROR enviando email:', error.message);
-    console.error('❌ Error completo:', error);
+    console.error('❌ Error name:', error.name);
+    console.error('❌ Error stack:', error.stack);
+    
+    // Si el error tiene una respuesta HTTP
+    if (error.response) {
+      console.error('❌ HTTP Status:', error.response.status);
+      console.error('❌ HTTP Data:', JSON.stringify(error.response.data, null, 2));
+    }
+    
+    // Si es un error de la librería Resend
+    if (error.statusCode) {
+      console.error('❌ Resend Status Code:', error.statusCode);
+    }
+    
     throw new Error(`No se pudo enviar el email: ${error.message}`);
   }
 };
