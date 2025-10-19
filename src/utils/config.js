@@ -1,16 +1,8 @@
 // src/utils/config.js
-const JWT_SECRET = process.env.JWT_SECRET
-const PORT = process.env.PORT;
-const BASE_URL = process.env.BASE_URL; // ✅ Nueva línea
+export const JWT_SECRET = process.env.JWT_SECRET;
+export const PORT = process.env.PORT;
+export const BASE_URL = process.env.BASE_URL || 'http://localhost:8081';
 export const RESEND_API_KEY = process.env.RESEND_API_KEY;
-export const RESEND_FROM = process.env.RESEND_FROM
-
-export {
-  JWT_SECRET,
-  PORT,
-  BASE_URL,
-  RESEND_API_KEY,
-  RESEND_FROM
-
-};
+export const RESEND_FROM = process.env.RESEND_FROM || 'Merfame <onboarding@resend.dev>';
+export const DATABASE_URL = process.env.DATABASE_URL;
 
