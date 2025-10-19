@@ -7,125 +7,88 @@ import { sendVerificationEmail } from './emailService.js'; // Importa el servici
 import { getSpotifyArtist } from './spotifyServices.js'; 
 import { get, run, query } from '../db/queryHelper.js'; 
 
-
 // Función para registrar un nuevo usuario (AHORA CON EL PARÁMETRO 'role')
 export const registerUser = async (email, password, role, username) => {
   console.log('Registering user with username:', username);
-  return new Promise((resolve, reject) => {
+  
+  try {
     // Validar que el rol sea uno de los permitidos
     if (!['listener', 'artist'].includes(role)) {
-      return reject({ statusCode: 400, message: 'Rol inválido. Los roles permitidos son "listener" o "artist".' });
+      throw { statusCode: 400, message: 'Rol inválido. Los roles permitidos son "listener" o "artist".' };
     }
 
     // Validar que el username esté presente
     if (!username) {
-      return reject({ statusCode: 400, message: 'El nombre de usuario es requerido.' });
+      throw { statusCode: 400, message: 'El nombre de usuario es requerido.' };
     }
 
     // Verificar si el usuario ya existe
-    db.get('SELECT * FROM users WHERE email = ? OR username = ?', [email, username], async (err, row) => {
-      if (err) {
-        console.error("Error al buscar usuario en registro:", err.message);
-        return reject({ statusCode: 500, message: 'Error interno del servidor.' });
+    const existingUser = await get('SELECT * FROM users WHERE email = ? OR username = ?', [email, username]);
+    
+    if (existingUser) {
+      if (existingUser.email === email) {
+        console.log('Found existing user with username:', existingUser.username);
+        throw { statusCode: 409, message: 'El email ya está registrado.' };
       }
-      if (row) {
-        // Usuario ya existe
-        if (row.email === email) {
-          console.log('Found existing user with username:', row.username);
-          return reject({ statusCode: 409, message: 'El email ya está registrado.' });
-        }
-        if (row.username === username) {
-          return reject({ statusCode: 409, message: 'El nombre de usuario ya está en uso.' });
-        }
+      if (existingUser.username === username) {
+        throw { statusCode: 409, message: 'El nombre de usuario ya está en uso.' };
       }
+    }
 
-      // Hashear la contraseña
-      const hashedPassword = await bcrypt.hash(password, 10);
+    // Hashear la contraseña
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // Generar token de verificación
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+
+    // Insertar nuevo usuario en la base de datos
+    const result = await run(
+      `INSERT INTO users (email, password, role, username, verification_token) VALUES (?, ?, ?, ?, ?)`,
+      [email, hashedPassword, role, username, verificationToken]
+    );
+    
+    const userId = result.lastID;
+
+    // Si el rol es 'artist', crea también un perfil de artista
+    if (role === 'artist') {
+      try {
+        await run(`INSERT INTO artists (user_id, name) VALUES (?, ?)`, [userId, username]);
+        console.log(`Perfil de artista creado para el usuario ${userId}: ${username}`);
+      } catch (artistErr) {
+        console.error("Error al crear perfil de artista:", artistErr.message);
+        throw { statusCode: 500, message: 'Error al crear el perfil de artista. Inténtelo de nuevo.' };
+      }
+    }
+
+    // Enviar email de verificación
+    try {
+      await sendVerificationEmail(email, verificationToken);
       
-      // Generar token de verificación
-      const verificationToken = crypto.randomBytes(32).toString('hex');
-
-      // Insertar nuevo usuario en la base de datos
-      db.run(`INSERT INTO users (email, password, role, username, verification_token) VALUES (?, ?, ?, ?, ?)`,
-        [email, hashedPassword, role, username, verificationToken],
-        async function (err) {
-          if (err) {
-            console.error("Error al insertar nuevo usuario:", err.message);
-            return reject({ statusCode: 500, message: 'Error al registrar el usuario.' });
-          }
-          const userId = this.lastID;
-
-          // Si el rol es 'artist', crea también un perfil de artista
-          if (role === 'artist') {
-            db.run(`INSERT INTO artists (user_id, name) VALUES (?, ?)`,
-              [userId, username],
-              async (artistErr) => {
-                if (artistErr) {
-                  console.error("Error al crear perfil de artista:", artistErr.message);
-                  return reject({ statusCode: 500, message: 'Error al crear el perfil de artista. Inténtelo de nuevo.' });
-                }
-                console.log(`Perfil de artista creado para el usuario ${userId}: ${username}`);
-                
-                try {
-                  // Enviar email de verificación
-                  await sendVerificationEmail(email, verificationToken);
-                  
-                  resolve({
-                    message: 'Usuario y perfil de artista registrados exitosamente. Por favor verifica tu email.',
-                    userId: userId,
-                    email: email,
-                    role: role,
-                    user_name: username,
-                    profileImageUrl: null,
-                    isVerified: false
-                  });
-                } catch (emailError) {
-                  console.error('Error enviando email de verificación:', emailError);
-                  // Aún así respondemos con éxito, pero informamos al usuario que revise su email
-                  resolve({
-                    message: 'Usuario registrado, pero hubo un problema enviando el email de verificación. Por favor contacta con soporte.',
-                    userId: userId,
-                    email: email,
-                    role: role,
-                    user_name: username,
-                    profileImageUrl: null,
-                    isVerified: false
-                  });
-                }
-              }
-            );
-          } else {
-            try {
-              // Enviar email de verificación
-              await sendVerificationEmail(email, verificationToken);
-              
-              resolve({
-                message: 'Usuario registrado exitosamente. Por favor verifica tu email.',
-                userId: userId,
-                email: email,
-                role: role,
-                user_name: username,
-                profileImageUrl: null,
-                isVerified: false
-              });
-            } catch (emailError) {
-              console.error('Error enviando email de verificación:', emailError);
-              // Aún así respondemos con éxito, pero informamos al usuario que revise su email
-              resolve({
-                message: 'Usuario registrado, pero hubo un problema enviando el email de verificación. Por favor contacta con soporte.',
-                userId: userId,
-                email: email,
-                role: role,
-                user_name: username,
-                profileImageUrl: null,
-                isVerified: false
-              });
-            }
-          }
-        }
-      );
-    });
-  });
+      return {
+        message: 'Usuario registrado exitosamente. Por favor verifica tu email.',
+        userId: userId,
+        email: email,
+        role: role,
+        user_name: username,
+        profileImageUrl: null,
+        isVerified: false
+      };
+    } catch (emailError) {
+      console.error('Error enviando email de verificación:', emailError);
+      return {
+        message: 'Usuario registrado, pero hubo un problema enviando el email de verificación. Por favor contacta con soporte.',
+        userId: userId,
+        email: email,
+        role: role,
+        user_name: username,
+        profileImageUrl: null,
+        isVerified: false
+      };
+    }
+  } catch (error) {
+    console.error("Error en registerUser:", error);
+    throw error;
+  }
 };
 
 export const registerUserWithSpotify = async (email, password, role, username, spotifyData, spotifyAccessToken, spotifyRefreshToken) => {
@@ -180,234 +143,191 @@ export const registerUserWithSpotify = async (email, password, role, username, s
 };
 
 export const getArtistBySpotifyId = async (spotifyId) => {
-  return new Promise((resolve, reject) => {
-    db.get('SELECT * FROM artists WHERE spotify_id = ?', [spotifyId], (err, row) => {
-      if (err) {
-        console.error("Error al obtener artista por Spotify ID:", err.message);
-        reject({ statusCode: 500, message: 'Error al obtener artista.' });
-      } else {
-        resolve(row);
-      }
-    });
-  });
+  try {
+    const artist = await get('SELECT * FROM artists WHERE spotify_id = ?', [spotifyId]);
+    return artist;
+  } catch (error) {
+    console.error("Error al obtener artista por Spotify ID:", error.message);
+    throw { statusCode: 500, message: 'Error al obtener artista.' };
+  }
 };
 
 // Función para iniciar sesión de un usuario
 export const loginUser = async (identifier, password) => {
   console.log('Login attempt for identifier:', identifier);
-  return new Promise((resolve, reject) => {
-    // Query to check both email and username
-    db.get('SELECT * FROM users WHERE email = ? OR username = ?', [identifier, identifier], async (err, user) => {
-      if (err) {
-        console.error("Error al buscar usuario en login:", err.message);
-        return reject({ statusCode: 500, message: 'Error interno del servidor.' });
-      }
-      if (!user) {
-        console.log('No user found for identifier:', identifier);
-        return reject({ statusCode: 401, message: 'Credenciales inválidas.' });
-      }
+  
+  try {
+    // Buscar usuario por email o username
+    const user = await get('SELECT * FROM users WHERE email = ? OR username = ?', [identifier, identifier]);
+    
+    if (!user) {
+      console.log('No user found for identifier:', identifier);
+      throw { statusCode: 401, message: 'Credenciales inválidas.' };
+    }
 
-      console.log('User found with username:', user.username);
+    console.log('User found with username:', user.username);
 
-      // Verificar si el email está verificado
-      if (!user.is_verified) {
-        return reject({ 
-          statusCode: 401, 
-          message: 'Por favor verifica tu email antes de iniciar sesión. Revisa tu bandeja de entrada.' 
-        });
-      }
+    // Verificar si el email está verificado
+    if (!user.is_verified) {
+      throw { 
+        statusCode: 401, 
+        message: 'Por favor verifica tu email antes de iniciar sesión. Revisa tu bandeja de entrada.' 
+      };
+    }
 
-      try {
-        const match = await bcrypt.compare(password, user.password);
-        if (!match) {
-          return reject({ statusCode: 401, message: 'Credenciales inválidas.' });
-        }
+    // Verificar contraseña
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
+      throw { statusCode: 401, message: 'Credenciales inválidas.' };
+    }
 
-        // Generate JWT
-        const token = generateToken({ id: user.id, email: user.email, role: user.role, userName: user.username});
+    // Generar JWT
+    const token = generateToken({ id: user.id, email: user.email, role: user.role, userName: user.username });
 
-        resolve({
-          message: 'Inicio de sesión exitoso.',
-          userId: user.id,
-          token: token,
-          email: user.email,
-          role: user.role,
-          user_name: user.username,
-          profileImageUrl: null,
-          isVerified: true
-        });
-
-      } catch (error) {
-        reject({ statusCode: 500, message: 'Error al comparar contraseña o generar token.', error: error.message });
-      }
-    });
-  });
+    return {
+      message: 'Inicio de sesión exitoso.',
+      userId: user.id,
+      token: token,
+      email: user.email,
+      role: user.role,
+      user_name: user.username,
+      profileImageUrl: null,
+      isVerified: true
+    };
+  } catch (error) {
+    console.error("Error en loginUser:", error);
+    throw error;
+  }
 };
 
 // Función para verificar email
 export const verifyEmail = async (token) => {
-  return new Promise((resolve, reject) => {
+  try {
     if (!token) {
-      return reject({ statusCode: 400, message: 'Token de verificación requerido.' });
+      throw { statusCode: 400, message: 'Token de verificación requerido.' };
     }
 
     // Buscar usuario con el token de verificación
-    db.get('SELECT * FROM users WHERE verification_token = ?', [token], (err, user) => {
-      if (err) {
-        console.error("Error al buscar usuario por token:", err.message);
-        return reject({ statusCode: 500, message: 'Error interno del servidor.' });
-      }
+    const user = await get('SELECT * FROM users WHERE verification_token = ?', [token]);
 
-      if (!user) {
-        return reject({ statusCode: 400, message: 'Token de verificación inválido o expirado.' });
-      }
+    if (!user) {
+      throw { statusCode: 400, message: 'Token de verificación inválido o expirado.' };
+    }
 
-      // Actualizar usuario como verificado y eliminar el token
-      db.run('UPDATE users SET is_verified = 1, verification_token = NULL WHERE id = ?', 
-        [user.id], 
-        function(updateErr) {
-          if (updateErr) {
-            console.error("Error al actualizar usuario:", updateErr.message);
-            return reject({ statusCode: 500, message: 'Error al verificar el email.' });
-          }
+    // Actualizar usuario como verificado
+    await run('UPDATE users SET is_verified = ?, verification_token = NULL WHERE id = ?', [true, user.id]);
 
-          resolve({ 
-            message: 'Email verificado exitosamente. Ya puedes iniciar sesión.',
-            userId: user.id,
-            email: user.email
-          });
-        }
-      );
-    });
-  });
+    return { 
+      message: 'Email verificado exitosamente. Ya puedes iniciar sesión.',
+      userId: user.id,
+      email: user.email
+    };
+  } catch (error) {
+    console.error("Error en verifyEmail:", error);
+    throw error;
+  }
 };
 
 // Función para reenviar email de verificación
 export const resendVerificationEmail = async (email) => {
-  return new Promise((resolve, reject) => {
+  try {
     if (!email) {
-      return reject({ statusCode: 400, message: 'Email requerido.' });
+      throw { statusCode: 400, message: 'Email requerido.' };
     }
 
     // Buscar usuario por email
-    db.get('SELECT * FROM users WHERE email = ?', [email], async (err, user) => {
-      if (err) {
-        console.error("Error al buscar usuario:", err.message);
-        return reject({ statusCode: 500, message: 'Error interno del servidor.' });
-      }
+    const user = await get('SELECT * FROM users WHERE email = ?', [email]);
 
-      if (!user) {
-        return reject({ statusCode: 404, message: 'No existe una cuenta con este email.' });
-      }
+    if (!user) {
+      throw { statusCode: 404, message: 'No existe una cuenta con este email.' };
+    }
 
-      if (user.is_verified) {
-        return reject({ statusCode: 400, message: 'Este email ya está verificado.' });
-      }
+    if (user.is_verified) {
+      throw { statusCode: 400, message: 'Este email ya está verificado.' };
+    }
 
-      // Generar nuevo token de verificación
-      const newVerificationToken = crypto.randomBytes(32).toString('hex');
+    // Generar nuevo token de verificación
+    const newVerificationToken = crypto.randomBytes(32).toString('hex');
 
-      // Actualizar token en la base de datos
-      db.run('UPDATE users SET verification_token = ? WHERE id = ?', 
-        [newVerificationToken, user.id], 
-        async function(updateErr) {
-          if (updateErr) {
-            console.error("Error al actualizar token:", updateErr.message);
-            return reject({ statusCode: 500, message: 'Error al generar nuevo token de verificación.' });
-          }
+    // Actualizar token en la base de datos
+    await run('UPDATE users SET verification_token = ? WHERE id = ?', [newVerificationToken, user.id]);
 
-          try {
-            // Enviar email de verificación
-            await sendVerificationEmail(email, newVerificationToken);
-            
-            resolve({ 
-              message: 'Email de verificación reenviado. Por favor revisa tu bandeja de entrada.',
-              email: email
-            });
-          } catch (emailError) {
-            console.error('Error enviando email de verificación:', emailError);
-            reject({ 
-              statusCode: 500, 
-              message: 'Error al enviar el email de verificación. Por favor intenta más tarde.' 
-            });
-          }
-        }
-      );
-    });
-  });
+    // Enviar email de verificación
+    await sendVerificationEmail(email, newVerificationToken);
+    
+    return { 
+      message: 'Email de verificación reenviado. Por favor revisa tu bandeja de entrada.',
+      email: email
+    };
+  } catch (error) {
+    console.error("Error en resendVerificationEmail:", error);
+    throw error;
+  }
 };
 
 export const updateArtistWithSpotifyData = async (userId, spotifyData) => {
-    return new Promise((resolve, reject) => {
-        db.run(
-            `UPDATE artists SET 
-            spotify_id = ?, 
-            spotify_profile_url = ?,
-            spotify_display_name = ?,
-            spotify_email = ?,
-            spotify_country = ?,
-            spotify_followers = ?,
-            spotify_images = ?,
-            spotify_uri = ?,
-            spotify_popularity = ?  -- ✅ NUEVO CAMPO
-            WHERE user_id = ?`,
-            [
-                spotifyData.spotify_id,
-                spotifyData.spotify_profile_url,
-                spotifyData.spotify_display_name,
-                spotifyData.spotify_email,
-                spotifyData.spotify_country,
-                spotifyData.spotify_followers,
-                spotifyData.spotify_images,
-                spotifyData.spotify_uri,
-                spotifyData.spotify_popularity || null,  // ✅ NUEVO CAMPO
-                userId
-            ],
-            function(err) {
-                if (err) {
-                    console.error("Error al actualizar artista con datos de Spotify:", err.message);
-                    reject({ statusCode: 500, message: 'Error al guardar datos de Spotify.' });
-                } else {
-                    resolve({ message: 'Datos de Spotify guardados exitosamente.' });
-                }
-            }
-        );
-    });
+  try {
+    await run(
+      `UPDATE artists SET 
+      spotify_id = ?, 
+      spotify_profile_url = ?,
+      spotify_display_name = ?,
+      spotify_email = ?,
+      spotify_country = ?,
+      spotify_followers = ?,
+      spotify_images = ?,
+      spotify_uri = ?,
+      spotify_popularity = ?
+      WHERE user_id = ?`,
+      [
+        spotifyData.spotify_id,
+        spotifyData.spotify_profile_url,
+        spotifyData.spotify_display_name,
+        spotifyData.spotify_email,
+        spotifyData.spotify_country,
+        spotifyData.spotify_followers,
+        spotifyData.spotify_images,
+        spotifyData.spotify_uri,
+        spotifyData.spotify_popularity || null,
+        userId
+      ]
+    );
+    
+    return { message: 'Datos de Spotify guardados exitosamente.' };
+  } catch (error) {
+    console.error("Error al actualizar artista con datos de Spotify:", error.message);
+    throw { statusCode: 500, message: 'Error al guardar datos de Spotify.' };
+  }
 };
 
 
 // Función para obtener artista por user_id
 export const getArtistByUserId = async (userId) => {
-  return new Promise((resolve, reject) => {
-    db.get('SELECT * FROM artists WHERE user_id = ?', [userId], (err, row) => {
-      if (err) {
-        console.error("Error al obtener artista:", err.message);
-        reject({ statusCode: 500, message: 'Error al obtener artista.' });
-      } else {
-        resolve(row);
-      }
-    });
-  });
+  try {
+    const artist = await get('SELECT * FROM artists WHERE user_id = ?', [userId]);
+    return artist;
+  } catch (error) {
+    console.error("Error al obtener artista:", error.message);
+    throw { statusCode: 500, message: 'Error al obtener artista.' };
+  }
 };
-
 
 // Nueva función para actualizar el rol del usuario (aunque no se use directamente para registrar artistas inicialmente)
 export const updateUserRole = async (userId, newRole) => {
-  return new Promise((resolve, reject) => {
+  try {
     if (!['listener', 'artist'].includes(newRole)) {
-      return reject({ statusCode: 400, message: 'Rol inválido. Los roles permitidos son "listener" o "artist".' });
+      throw { statusCode: 400, message: 'Rol inválido. Los roles permitidos son "listener" o "artist".' };
     }
 
-    db.run('UPDATE users SET role = ? WHERE id = ?', [newRole, userId], function (err) {
-      if (err) {
-        console.error("Error al actualizar rol de usuario:", err.message);
-        return reject({ statusCode: 500, message: 'Error interno del servidor.' });
-      }
-      if (this.changes === 0) {
-        return reject({ statusCode: 404, message: 'Usuario no encontrado o rol ya establecido.' });
-      }
-      resolve({ message: 'Rol de usuario actualizado exitosamente.' });
-    });
-  });
+    const result = await run('UPDATE users SET role = ? WHERE id = ?', [newRole, userId]);
+    
+    if (result.changes === 0) {
+      throw { statusCode: 404, message: 'Usuario no encontrado o rol ya establecido.' };
+    }
+    
+    return { message: 'Rol de usuario actualizado exitosamente.' };
+  } catch (error) {
+    console.error("Error al actualizar rol de usuario:", error.message);
+    throw error;
+  }
 };
-
