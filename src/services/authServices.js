@@ -5,6 +5,7 @@ import db from '../db/index.js'; // Importa la instancia de la base de datos
 import { generateToken } from '../utils/jwt.js'; // Importa la función de generación de token
 import { sendVerificationEmail } from './emailService.js'; // Importa el servicio de email
 import { getSpotifyArtist } from './spotifyServices.js'; 
+import { get, run, query } from '../db/queryHelper.js'; 
 
 // Función para registrar un nuevo usuario (AHORA CON EL PARÁMETRO 'role')
 export const registerUser = async (email, password, role, username) => {
