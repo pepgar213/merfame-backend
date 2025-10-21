@@ -151,7 +151,7 @@ const createTablesPostgres = async () => {
     await db.query(`
   CREATE TABLE IF NOT EXISTS artist_verification_codes (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,  -- ✅ NUEVO
     code VARCHAR(50) UNIQUE NOT NULL,
     platform VARCHAR(20) NOT NULL CHECK (platform IN ('spotify', 'youtube')),
     platform_url TEXT,
@@ -344,7 +344,7 @@ const createTablesSQLite = () => {
       db.run(`
         CREATE TABLE IF NOT EXISTS artist_verification_codes (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
+          user_id INTEGER,  -- ✅ SIN NOT NULL
           code TEXT UNIQUE NOT NULL,
           platform TEXT NOT NULL CHECK (platform IN ('spotify', 'youtube')),
           platform_url TEXT,

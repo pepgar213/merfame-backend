@@ -47,6 +47,11 @@ async function authRoutes (fastify, options) {
                 });
             }
 
+            await run(
+                'UPDATE artist_verification_codes SET user_id = ? WHERE code = ?',
+                [userId, verificationCode]
+            );
+
             // Verificar que el código no haya sido usado
             const codeUsed = await get(
                 'SELECT * FROM artists WHERE verification_code = ?',
