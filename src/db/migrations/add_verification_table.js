@@ -1,108 +1,65 @@
-// src/db/migrations/fix_verification_user_id_nullable.js
-import db, { usePostgres } from '../connection.js';
+// src/db/migrations/fix_verification_nullable.js
+import pg from 'pg';
+const { Pool } = pg;
 
-console.log('🔄 Iniciando migración: hacer user_id nullable en verification_codes');
+const runMigration = async () => {
+  console.log('🔄 Iniciando migración: hacer user_id y platform nullable en PostgreSQL\n');
+  
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+      rejectUnauthorized: false
+    }
+  });
 
-const migratePostgres = async () => {
   try {
-    console.log('📊 Migrando PostgreSQL...');
-    
-    // Hacer user_id nullable
-    await db.query(`
+    // 1. Hacer user_id nullable
+    console.log('📝 1/3 Haciendo user_id nullable...');
+    await pool.query(`
       ALTER TABLE artist_verification_codes 
       ALTER COLUMN user_id DROP NOT NULL;
     `);
-    
     console.log('  ✓ user_id ahora es nullable');
     
-    // Añadir índice para búsquedas sin user_id
-    await db.query(`
+    // 2. Hacer platform nullable
+    console.log('📝 2/3 Haciendo platform nullable...');
+    await pool.query(`
+      ALTER TABLE artist_verification_codes 
+      ALTER COLUMN platform DROP NOT NULL;
+    `);
+    console.log('  ✓ platform ahora es nullable');
+    
+    // 3. Añadir índice para optimización
+    console.log('📝 3/3 Creando índice de optimización...');
+    await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_verification_codes_status_expires 
       ON artist_verification_codes(status, expires_at);
     `);
+    console.log('  ✓ Índice creado');
     
-    console.log('  ✓ Índice de optimización creado');
-    console.log('✅ Migración PostgreSQL completada');
+    // Verificar cambios
+    const result = await pool.query(`
+      SELECT 
+        column_name, 
+        is_nullable 
+      FROM information_schema.columns 
+      WHERE table_name = 'artist_verification_codes' 
+      AND column_name IN ('user_id', 'platform')
+      ORDER BY column_name;
+    `);
+    
+    console.log('\n✅ Migración completada exitosamente');
+    console.log('📊 Estado de las columnas:');
+    console.log('─'.repeat(40));
+    console.table(result.rows);
     
   } catch (error) {
-    console.error('❌ Error en migración PostgreSQL:', error.message);
+    console.error('\n❌ Error en migración:', error.message);
+    console.error('Stack:', error.stack);
     throw error;
-  }
-};
-
-const migrateSQLite = () => {
-  return new Promise((resolve, reject) => {
-    console.log('📊 Migrando SQLite...');
-    
-    // SQLite no soporta ALTER COLUMN, necesitamos recrear la tabla
-    db.serialize(() => {
-      // 1. Crear tabla temporal con la nueva estructura
-      db.run(`
-        CREATE TABLE artist_verification_codes_new (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER,
-          code TEXT UNIQUE NOT NULL,
-          platform TEXT NOT NULL CHECK (platform IN ('spotify', 'youtube')),
-          platform_url TEXT,
-          platform_data TEXT,
-          status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'failed', 'expired')),
-          failure_reason TEXT,
-          expires_at TEXT NOT NULL,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-          verified_at TEXT,
-          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-      `, (err) => {
-        if (err) return reject(err);
-        console.log('  ✓ Tabla temporal creada');
-      });
-
-      // 2. Copiar datos existentes
-      db.run(`
-        INSERT INTO artist_verification_codes_new 
-        SELECT * FROM artist_verification_codes;
-      `, (err) => {
-        if (err && !err.message.includes('no such table')) {
-          return reject(err);
-        }
-        console.log('  ✓ Datos copiados');
-      });
-
-      // 3. Eliminar tabla antigua
-      db.run(`DROP TABLE IF EXISTS artist_verification_codes;`, (err) => {
-        if (err) return reject(err);
-        console.log('  ✓ Tabla antigua eliminada');
-      });
-
-      // 4. Renombrar tabla nueva
-      db.run(`
-        ALTER TABLE artist_verification_codes_new 
-        RENAME TO artist_verification_codes;
-      `, (err) => {
-        if (err) return reject(err);
-        console.log('  ✓ Tabla renombrada');
-        console.log('✅ Migración SQLite completada');
-        resolve();
-      });
-    });
-  });
-};
-
-const runMigration = async () => {
-  try {
-    if (usePostgres) {
-      await migratePostgres();
-    } else {
-      await migrateSQLite();
-    }
-    
-    console.log('\n🎉 Migración completada exitosamente');
-    console.log('✅ user_id ahora es nullable en artist_verification_codes');
-    console.log('📝 Los códigos pueden generarse sin usuario asignado');
+  } finally {
+    await pool.end();
     process.exit(0);
-  } catch (error) {
-    console.error('\n❌ Error en migración:', error);
-    process.exit(1);
   }
 };
 
