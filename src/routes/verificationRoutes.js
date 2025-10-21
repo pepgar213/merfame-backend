@@ -2,8 +2,7 @@
 import { 
   generateVerificationCode,
   verifyArtistCode,
-  getVerificationStatus,
-  getUserVerificationCodes
+  getVerificationStatus
 } from '../services/verificationCodeService.js';
 
 async function verificationRoutes(fastify, options) {
@@ -67,23 +66,6 @@ async function verificationRoutes(fastify, options) {
       console.error('VerificationRoutes: ERROR obteniendo estado:', error);
       reply.code(error.statusCode || 500).send({ 
         message: error.message || 'Error al obtener estado de verificación' 
-      });
-    }
-  });
-
-  // ====== RUTAS PROTEGIDAS (con autenticación) ======
-  
-  fastify.get('/my-codes', { 
-    preHandler: [fastify.authenticate] 
-  }, async (request, reply) => {
-    try {
-      const userId = request.user.id;
-      const codes = await getUserVerificationCodes(userId);
-      reply.code(200).send({ codes });
-    } catch (error) {
-      console.error('VerificationRoutes: ERROR obteniendo códigos:', error);
-      reply.code(error.statusCode || 500).send({ 
-        message: error.message || 'Error al obtener códigos' 
       });
     }
   });
