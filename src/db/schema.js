@@ -151,9 +151,9 @@ const createTablesPostgres = async () => {
     await db.query(`
   CREATE TABLE IF NOT EXISTS artist_verification_codes (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,  -- ✅ NUEVO
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     code VARCHAR(50) UNIQUE NOT NULL,
-    platform VARCHAR(20) NOT NULL CHECK (platform IN ('spotify', 'youtube')),
+    platform VARCHAR(20) CHECK (platform IN ('spotify', 'youtube')),  // ✅ Quitado NOT NULL
     platform_url TEXT,
     platform_data TEXT,
     status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'failed', 'expired')),
