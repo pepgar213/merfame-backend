@@ -15,6 +15,7 @@ import { dirname, join } from 'path';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyCompress from '@fastify/compress';
 import spotifyRoutes from './routes/spotifyRoutes.js';
+import verificationRoutes from './routes/verificationRoutes.js';
 import { serverAdapter, authenticateBullBoard } from './config/bullBoard.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -63,6 +64,9 @@ server.register(musicRoutes, { prefix: '/api' });
 
 server.register(spotifyRoutes, { prefix: '/api' });
 console.log('Servidor: Rutas de Spotify registradas en /api');
+
+server.register(verificationRoutes, { prefix: '/api/verification' });
+console.log('Servidor: Rutas de verificación de artistas registradas en /api/verification');
 
 // Ruta de prueba
 server.get('/', async (request, reply) => {

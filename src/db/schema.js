@@ -145,6 +145,33 @@ const createTablesPostgres = async () => {
       CREATE INDEX IF NOT EXISTS idx_music_tracks_artist_id ON music_tracks(artist_id);
       CREATE INDEX IF NOT EXISTS idx_playlists_user_id ON playlists(user_id);
     `);
+
+    await db.query(`
+  CREATE TABLE IF NOT EXISTS artist_verification_codes (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    platform VARCHAR(20) NOT NULL CHECK (platform IN ('spotify', 'youtube')),
+    platform_url TEXT,
+    platform_data TEXT,
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'failed', 'expired')),
+    failure_reason TEXT,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    verified_at TIMESTAMP
+  );
+`);
+console.log('  ✓ artist_verification_codes');
+
+    // 10. Índices adicionales para artist_verification_codes
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS idx_verification_codes_user_id ON artist_verification_codes(user_id);
+      CREATE INDEX IF NOT EXISTS idx_verification_codes_code ON artist_verification_codes(code);
+      CREATE INDEX IF NOT EXISTS idx_verification_codes_status ON artist_verification_codes(status);
+    `);
+
+
+    console.log('  ✓ índices de artist_verification_codes');
     console.log('  ✓ índices de performance');
 
   } catch (error) {
@@ -314,6 +341,30 @@ const createTablesSQLite = () => {
           return reject(err);
         }
         console.log("  ✓ user_dislikes_song");
+        resolve();
+      });
+      // 9. Tabla artist_verification_codes
+      db.run(`
+        CREATE TABLE IF NOT EXISTS artist_verification_codes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          code TEXT UNIQUE NOT NULL,
+          platform TEXT NOT NULL CHECK (platform IN ('spotify', 'youtube')),
+          platform_url TEXT,
+          platform_data TEXT,
+          status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'failed', 'expired')),
+          failure_reason TEXT,
+          expires_at TEXT NOT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          verified_at TEXT,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+      `, (err) => {
+        if (err) {
+          console.error("❌ Error creando tabla 'artist_verification_codes':", err.message);
+          return reject(err);
+        }
+        console.log("  ✓ artist_verification_codes");
         resolve();
       });
     });
