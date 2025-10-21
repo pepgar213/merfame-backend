@@ -153,7 +153,7 @@ const createTablesPostgres = async () => {
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     code VARCHAR(50) UNIQUE NOT NULL,
-    platform VARCHAR(20) CHECK (platform IN ('spotify', 'youtube')),  // ✅ Quitado NOT NULL
+    platform VARCHAR(20) CHECK (platform IN ('spotify', 'youtube')),
     platform_url TEXT,
     platform_data TEXT,
     status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'failed', 'expired')),
@@ -167,14 +167,11 @@ console.log('  ✓ artist_verification_codes');
 
     // 10. Índices adicionales para artist_verification_codes
     await db.query(`
-      CREATE INDEX IF NOT EXISTS idx_verification_codes_user_id ON artist_verification_codes(user_id);
-      CREATE INDEX IF NOT EXISTS idx_verification_codes_code ON artist_verification_codes(code);
-      CREATE INDEX IF NOT EXISTS idx_verification_codes_status ON artist_verification_codes(status);
-    `);
-
-
-    console.log('  ✓ índices de artist_verification_codes');
-    console.log('  ✓ índices de performance');
+  CREATE INDEX IF NOT EXISTS idx_verification_codes_user_id ON artist_verification_codes(user_id);
+  CREATE INDEX IF NOT EXISTS idx_verification_codes_code ON artist_verification_codes(code);
+  CREATE INDEX IF NOT EXISTS idx_verification_codes_status ON artist_verification_codes(status);
+  `);
+  console.log('  ✓ índices de artist_verification_codes');
 
   } catch (error) {
     console.error('❌ Error creando tablas PostgreSQL:', error.message);
