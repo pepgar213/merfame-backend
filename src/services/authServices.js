@@ -8,7 +8,7 @@ import { getSpotifyArtist } from './spotifyServices.js';
 import { get, run, query } from '../db/queryHelper.js'; 
 
 // Función para registrar un nuevo usuario (AHORA CON EL PARÁMETRO 'role')
-export const registerUser = async (email, password, role, username) => {
+export const registerUser = async (email, password, role, username, verificationCode = null) => {
   console.log('Registering user with username:', username);
   
   try {
@@ -52,8 +52,30 @@ export const registerUser = async (email, password, role, username) => {
     // Si el rol es 'artist', crea también un perfil de artista
     if (role === 'artist') {
       try {
-        await run(`INSERT INTO artists (user_id, name) VALUES (?, ?)`, [userId, username]);
-        console.log(`Perfil de artista creado para el usuario ${userId}: ${username}`);
+        // ✅ OBTENER DATOS DE LA VERIFICACIÓN
+        let artistData = { name: username };
+        
+        if (verificationCode) {
+          const verification = await get(
+            'SELECT * FROM artist_verifications WHERE code = ?',
+            [verificationCode]
+          );
+
+          if (verification) {
+            artistData = {
+              name: verification.result_artist_name || username,
+              spotify_profile_url: verification.platform === 'spotify' ? verification.result_profile_url : null,
+              // Añadir otros campos según necesites
+            };
+          }
+        }
+
+        await run(
+          `INSERT INTO artists (user_id, name, spotify_profile_url, verification_code) VALUES (?, ?, ?, ?)`,
+          [userId, artistData.name, artistData.spotify_profile_url, verificationCode]
+        );
+        
+        console.log(`Perfil de artista creado para el usuario ${userId}: ${artistData.name}`);
       } catch (artistErr) {
         console.error("Error al crear perfil de artista:", artistErr.message);
         throw { statusCode: 500, message: 'Error al crear el perfil de artista. Inténtelo de nuevo.' };

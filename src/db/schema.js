@@ -53,10 +53,12 @@ const createTablesPostgres = async () => {
         spotify_images TEXT,
         spotify_uri VARCHAR(255),
         spotify_popularity INTEGER,
+        verification_code VARCHAR(10) UNIQUE,  -- ✅ NUEVO
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
     console.log('  ✓ artists');
 
     // 3. Tabla music_tracks
@@ -208,31 +210,26 @@ const createTablesSQLite = () => {
 
       // 2. Tabla artists
       db.run(`
-        CREATE TABLE IF NOT EXISTS artists (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER UNIQUE NOT NULL,
-          name TEXT NOT NULL,
-          genre TEXT,
-          bio TEXT,
-          image_url TEXT,
-          spotify_id TEXT UNIQUE,
-          spotify_profile_url TEXT,
-          spotify_display_name TEXT,
-          spotify_email TEXT,
-          spotify_country TEXT,
-          spotify_followers INTEGER,
-          spotify_images TEXT,
-          spotify_uri TEXT,
-          spotify_popularity INTEGER,
-          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-      `, (err) => {
-        if (err) {
-          console.error("❌ Error creando tabla 'artists':", err.message);
-          return reject(err);
-        }
-        console.log("  ✓ artists");
-      });
+      CREATE TABLE IF NOT EXISTS artists (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        genre TEXT,
+        bio TEXT,
+        image_url TEXT,
+        spotify_id TEXT UNIQUE,
+        spotify_profile_url TEXT,
+        spotify_display_name TEXT,
+        spotify_email TEXT,
+        spotify_country TEXT,
+        spotify_followers INTEGER,
+        spotify_images TEXT,
+        spotify_uri TEXT,
+        spotify_popularity INTEGER,
+        verification_code TEXT UNIQUE,  -- ✅ NUEVO
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
 
       // 3. Tabla music_tracks
       db.run(`
