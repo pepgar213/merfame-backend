@@ -5,54 +5,34 @@ import { verificationQueue } from './workers/verificationProcessor.js';
 console.log('[Worker Process] Iniciando worker independiente...');
 console.log('[Worker Process] Colas disponibles: song-processing, artist-verification');
 
-// ==========================================
-// COLA DE PROCESAMIENTO DE CANCIONES
-// ==========================================
 songQueue.on('completed', (job, result) => {
-  console.log(`[Song Queue] Job ${job.id} completado`);
+  console.log(`[Worker Process] Job ${job.id} completado`);
 });
 
 songQueue.on('failed', (job, err) => {
-  console.error(`[Song Queue] Job ${job.id} falló:`, err.message);
+  console.error(`[Worker Process] Job ${job.id} falló:`, err.message);
 });
 
 songQueue.on('error', (error) => {
-  console.error('[Song Queue] Error en la cola:', error);
-});
-
-// ==========================================
-// COLA DE VERIFICACIÓN DE ARTISTAS
-// ==========================================
-verificationQueue.on('completed', (job, result) => {
-  console.log(`[Verification Queue] Job ${job.id} completado`);
-});
-
-verificationQueue.on('failed', (job, err) => {
-  console.error(`[Verification Queue] Job ${job.id} falló:`, err.message);
+  console.error('[Worker Process] Error en la cola de canciones:', error);
 });
 
 verificationQueue.on('error', (error) => {
-  console.error('[Verification Queue] Error en la cola:', error);
+  console.error('[Worker Process] Error en la cola de verificación:', error);
 });
 
-// ==========================================
-// MANEJO DE SEÑALES
-// ==========================================
+// Manejar señales para cerrar gracefully
 process.on('SIGTERM', async () => {
   console.log('[Worker Process] Recibida señal SIGTERM, cerrando...');
-  await Promise.all([
-    songQueue.close(),
-    verificationQueue.close()
-  ]);
+  await songQueue.close();
+  await verificationQueue.close();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   console.log('[Worker Process] Recibida señal SIGINT, cerrando...');
-  await Promise.all([
-    songQueue.close(),
-    verificationQueue.close()
-  ]);
+  await songQueue.close();
+  await verificationQueue.close();
   process.exit(0);
 });
 
