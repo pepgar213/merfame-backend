@@ -53,19 +53,15 @@ export const processVerification = async (job) => {
     
     // Actualizar en base de datos
     await run(
-      `UPDATE artist_verifications 
-       SET status = ?, 
-           result_verified = ?,
-           result_artist_name = ?,
-           result_profile_url = ?,
-           result_error = ?,
-           completed_at = datetime('now')
-       WHERE id = ?`,
+      `UPDATE artist_verification_codes 
+      SET status = ?, 
+          platform_data = ?,
+          failure_reason = ?,
+          verified_at = CURRENT_TIMESTAMP
+      WHERE id = ?`,
       [
-        result.verified ? 'completed' : 'failed',
-        result.verified ? 1 : 0,
-        result.artistName || null,
-        result.profileUrl || null,
+        result.verified ? 'verified' : 'failed',
+        result.verified ? JSON.stringify({ artistName: result.artistName, platform: result.platform }) : null,
         result.error || null,
         verificationId
       ]
