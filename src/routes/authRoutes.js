@@ -7,6 +7,9 @@ import {
   resendVerificationEmail 
 } from '../services/authServices.js';
 
+// ✅ AGREGAR ESTE IMPORT
+import { get } from '../db/queryHelper.js';
+
 // Función plugin para las rutas de autenticación
 async function authRoutes (fastify, options) {
 
@@ -31,12 +34,16 @@ async function authRoutes (fastify, options) {
         }
 
         try {
-            // ✅ CORREGIDO: Tabla correcta y validación completa
+            console.log('Validando código de verificación:', verificationCode);
+            
+            // ✅ CORREGIDO: Ahora 'get' está importado correctamente
             const verification = await get(
                 `SELECT * FROM artist_verification_codes 
                  WHERE code = ? AND status = 'verified'`,
                 [verificationCode]
             );
+
+            console.log('Resultado de la verificación:', verification);
 
             if (!verification) {
                 return reply.code(400).send({ 
@@ -63,7 +70,7 @@ async function authRoutes (fastify, options) {
         } catch (error) {
             console.error('Error validando código de verificación:', error);
             return reply.code(500).send({ 
-                message: 'Error al validar código de verificación.' 
+                message: 'Error al validar código de verificación: ' + error.message 
             });
         }
     }
@@ -77,11 +84,11 @@ async function authRoutes (fastify, options) {
             message: error.message || 'Error interno del servidor.' 
         });
     }
-});
+  });
 
   // Ruta de Login
   fastify.post('/login', async (request, reply) => {
-    const { identifier, password } = request.body; // Changed from 'email' to 'identifier'
+    const { identifier, password } = request.body;
 
     if (!identifier || !password) {
         return reply.code(400).send({ message: 'Email/username y contraseña son requeridos.' });
