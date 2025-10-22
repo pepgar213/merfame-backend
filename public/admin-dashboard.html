@@ -594,7 +594,7 @@
 
     <script>
         // CONFIGURACIÓN - CAMBIAR SEGÚN TU ENTORNO
-        const API_BASE = 'https://api.merfame.com/api';  // Cambiar a tu URL de producción
+        const API_BASE = 'https://api.merfame.com/api';  // ✅ URL de producción configurada
 
         let currentVerificationId = null;
         let currentUser = null;
@@ -615,38 +615,65 @@
             loginBtn.textContent = 'Iniciando sesión...';
             errorDiv.classList.remove('show');
             
+            console.log('🔐 Intentando login con:', email);
+            console.log('🌐 API Base:', API_BASE);
+            
             try {
+                console.log('📡 Enviando petición a:', `${API_BASE}/login`);
+                
                 const response = await fetch(`${API_BASE}/login`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ email, password })
+                    body: JSON.stringify({ identifier: email, password })  // ✅ Usar 'identifier' en lugar de 'email'
                 });
                 
+                console.log('📥 Respuesta recibida, status:', response.status);
+                
                 const data = await response.json();
+                console.log('📦 Datos recibidos:', data);
                 
                 if (!response.ok) {
-                    throw new Error(data.message || 'Error al iniciar sesión');
+                    console.error('❌ Error de respuesta:', data);
+                    throw new Error(data.message || `Error ${response.status}: ${response.statusText}`);
                 }
                 
                 // Verificar que el usuario sea admin
                 if (data.user.role !== 'admin' && data.user.role !== 'moderator') {
+                    console.error('❌ Usuario sin permisos:', data.user.role);
                     throw new Error('No tienes permisos de administrador');
                 }
+                
+                console.log('✅ Login exitoso, guardando datos...');
                 
                 // Guardar token y datos de usuario
                 localStorage.setItem('token', data.token);
                 localStorage.setItem('user', JSON.stringify(data.user));
                 currentUser = data.user;
                 
+                console.log('✅ Mostrando dashboard...');
+                
                 // Mostrar dashboard
                 showDashboard();
                 loadVerifications();
                 
             } catch (error) {
-                console.error('Error de login:', error);
-                errorDiv.textContent = error.message;
+                console.error('💥 Error de login:', error);
+                
+                // Mostrar error más detallado
+                let errorMessage = error.message;
+                
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage = '❌ No se puede conectar con el servidor. Verifica:\n' +
+                                 '1. Que el servidor esté corriendo\n' +
+                                 '2. Que la URL de la API sea correcta\n' +
+                                 '3. Configuración de CORS';
+                } else if (error.message.includes('NetworkError')) {
+                    errorMessage = '❌ Error de red. Verifica tu conexión a internet.';
+                }
+                
+                errorDiv.textContent = errorMessage;
                 errorDiv.classList.add('show');
             } finally {
                 loginBtn.disabled = false;
