@@ -748,15 +748,28 @@
         // ============================================
 
         async function loadStats() {
+            const token = localStorage.getItem('token');
+            
+            if (!token) {
+                console.error('No hay token disponible');
+                showLogin();
+                return;
+            }
+            
             try {
+                console.log('📊 Cargando estadísticas...');
                 const response = await fetch(`${API_BASE}/admin/verifications/stats`, {
                     headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        'Authorization': `Bearer ${token}`
                     }
                 });
 
+                console.log('📊 Respuesta stats:', response.status);
+
                 if (!response.ok) {
                     if (response.status === 401 || response.status === 403) {
+                        console.error('Token inválido o expirado');
+                        showToast('Sesión expirada. Por favor inicia sesión de nuevo.', 'error');
                         handleLogout();
                         return;
                     }
@@ -764,19 +777,28 @@
                 }
 
                 const stats = await response.json();
+                console.log('📊 Stats recibidas:', stats);
                 
                 document.getElementById('stat-total').textContent = stats.total || 0;
                 document.getElementById('stat-awaiting').textContent = stats.awaiting_review || 0;
                 document.getElementById('stat-verified').textContent = stats.verified || 0;
                 document.getElementById('stat-failed').textContent = stats.failed || 0;
             } catch (error) {
-                console.error('Error:', error);
+                console.error('Error cargando stats:', error);
             }
         }
 
         async function loadVerifications() {
             const container = document.getElementById('verifications');
             container.innerHTML = '<div class="loading">Cargando verificaciones...</div>';
+            
+            const token = localStorage.getItem('token');
+            
+            if (!token) {
+                console.error('No hay token disponible');
+                showLogin();
+                return;
+            }
 
             try {
                 const status = document.getElementById('statusFilter').value;
@@ -784,14 +806,20 @@
                     ? `${API_BASE}/admin/verifications?status=${status}&limit=100`
                     : `${API_BASE}/admin/verifications?limit=100`;
 
+                console.log('🔍 Cargando verificaciones desde:', url);
+
                 const response = await fetch(url, {
                     headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        'Authorization': `Bearer ${token}`
                     }
                 });
 
+                console.log('🔍 Respuesta verificaciones:', response.status);
+
                 if (!response.ok) {
                     if (response.status === 401 || response.status === 403) {
+                        console.error('Token inválido o expirado');
+                        showToast('Sesión expirada. Por favor inicia sesión de nuevo.', 'error');
                         handleLogout();
                         return;
                     }
@@ -799,6 +827,8 @@
                 }
 
                 const data = await response.json();
+                console.log('🔍 Datos recibidos:', data);
+                
                 const verifications = data.verifications;
 
                 if (!verifications || verifications.length === 0) {
@@ -876,12 +906,13 @@
 
                 await loadStats();
             } catch (error) {
-                console.error('Error:', error);
+                console.error('Error completo:', error);
                 container.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">⚠️</div>
                         <h3>Error al cargar</h3>
                         <p>${error.message}</p>
+                        <button class="btn" onclick="loadVerifications()" style="margin-top: 20px;">Reintentar</button>
                     </div>
                 `;
             }
