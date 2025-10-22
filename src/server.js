@@ -17,6 +17,7 @@ import fastifyCompress from '@fastify/compress';
 import spotifyRoutes from './routes/spotifyRoutes.js';
 import verificationRoutes from './routes/verificationRoutes.js';
 import { serverAdapter, authenticateBullBoard } from './config/bullBoard.js';
+import adminVerificationRoutes from './routes/adminVerificationRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -68,6 +69,7 @@ console.log('Servidor: Rutas de Spotify registradas en /api');
 server.register(verificationRoutes, { prefix: '/api/verification' });
 console.log('Servidor: Rutas de verificación de artistas registradas en /api/verification');
 
+server.register(adminVerificationRoutes, { prefix: '/api/admin/verifications' });
 // Ruta de prueba
 server.get('/', async (request, reply) => {
   return { hello: 'world', message: 'Backend Fastify de Merfame activo.' };

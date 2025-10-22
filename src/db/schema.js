@@ -346,7 +346,7 @@ const createTablesSQLite = () => {
           platform TEXT NOT NULL CHECK (platform IN ('spotify', 'youtube')),
           platform_url TEXT,
           platform_data TEXT,
-          status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'failed', 'expired')),
+          status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'awaiting_review', 'verified', 'failed', 'expired')),
           failure_reason TEXT,
           expires_at TEXT NOT NULL,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
