@@ -43,9 +43,53 @@ async function adminVerificationRoutes(fastify, options) {
   /**
    * GET /admin/verifications/stats
    * Obtiene estadísticas de verificaciones
-   * IMPORTANTE: Esta ruta debe estar ANTES de /:id
+   * IMPORTANTE: Esta ruta debe estar ANTES de /:id para evitar conflictos
    */
   fastify.get('/stats', async (request, reply) => {
+    console.log('AdminVerificationRoutes: /stats - Obteniendo estadísticas');
+    console.log('AdminVerificationRoutes: Usuario:', request.user?.email, 'Rol:', request.user?.role);
+    
+    try {
+      const stats = await query(`
+        SELECT 
+          status,
+          COUNT(*) as count
+        FROM artist_verification_codes
+        GROUP BY status
+      `);
+      
+      console.log('AdminVerificationRoutes: Stats raw:', stats);
+
+      const statsObj = {
+        total: 0,
+        pending: 0,
+        awaiting_review: 0,
+        verified: 0,
+        failed: 0,
+        expired: 0
+      };
+
+      stats.forEach(stat => {
+        statsObj[stat.status] = stat.count;
+        statsObj.total += stat.count;
+      });
+      
+      console.log('AdminVerificationRoutes: Stats procesadas:', statsObj);
+
+      reply.code(200).send(statsObj);
+    } catch (error) {
+      console.error('AdminVerificationRoutes: ERROR obteniendo estadísticas:', error);
+      reply.code(500).send({ 
+        message: 'Error al obtener estadísticas' 
+      });
+    }
+  });
+
+  /**
+   * GET /admin/verifications/pending
+   * Obtiene todas las verificaciones pendientes de revisión
+   */
+  fastify.get('/pending', async (request, reply) => {
     console.log('AdminVerificationRoutes: /pending - Obteniendo pendientes');
     try {
       const pending = await getPendingVerifications();
@@ -102,7 +146,6 @@ async function adminVerificationRoutes(fastify, options) {
     }
 
     try {
-      // Nota: getVerificationStatus usa code, necesitamos adaptarlo o crear una función nueva
       const verification = await query(
         'SELECT * FROM artist_verification_codes WHERE id = ?',
         [id]
@@ -187,50 +230,6 @@ async function adminVerificationRoutes(fastify, options) {
       console.error('AdminVerificationRoutes: ERROR rechazando:', error);
       reply.code(error.statusCode || 500).send({ 
         message: error.message || 'Error al rechazar verificación' 
-      });
-    }
-  });
-
-  /**
-   * GET /admin/verifications/stats
-   * Obtiene estadísticas de verificaciones
-   */
-  fastify.get('/stats', async (request, reply) => {
-    console.log('AdminVerificationRoutes: /stats - Obteniendo estadísticas');
-    console.log('AdminVerificationRoutes: Usuario:', request.user?.email, 'Rol:', request.user?.role);
-    
-    try {
-      const stats = await query(`
-        SELECT 
-          status,
-          COUNT(*) as count
-        FROM artist_verification_codes
-        GROUP BY status
-      `);
-      
-      console.log('AdminVerificationRoutes: Stats raw:', stats);
-
-      const statsObj = {
-        total: 0,
-        pending: 0,
-        awaiting_review: 0,
-        verified: 0,
-        failed: 0,
-        expired: 0
-      };
-
-      stats.forEach(stat => {
-        statsObj[stat.status] = stat.count;
-        statsObj.total += stat.count;
-      });
-      
-      console.log('AdminVerificationRoutes: Stats procesadas:', statsObj);
-
-      reply.code(200).send(statsObj);
-    } catch (error) {
-      console.error('AdminVerificationRoutes: ERROR obteniendo estadísticas:', error);
-      reply.code(500).send({ 
-        message: 'Error al obtener estadísticas' 
       });
     }
   });
