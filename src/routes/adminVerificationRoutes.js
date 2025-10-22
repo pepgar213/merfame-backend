@@ -17,27 +17,73 @@ async function adminVerificationRoutes(fastify, options) {
 
   // Middleware para verificar que el usuario es administrador
   const verifyAdmin = async (request, reply) => {
-    try {
-      // Verificar que hay un usuario autenticado
-      if (!request.user) {
-        return reply.code(401).send({ message: 'Autenticación requerida' });
-      }
-
-      // Verificar que el usuario tiene rol de admin
-      // NOTA: Ajusta esto según tu sistema de roles
-      if (request.user.role !== 'admin' && request.user.role !== 'moderator') {
-        return reply.code(403).send({ 
-          message: 'No tienes permisos para acceder a esta sección' 
-        });
-      }
-    } catch (error) {
-      console.error('AdminVerificationRoutes: ERROR en verificación de admin:', error);
-      return reply.code(500).send({ message: 'Error de autenticación' });
+    // Primero autenticar (usando el middleware de authPlugin)
+    await fastify.authenticate(request, reply);
+    
+    // Luego verificar rol de admin
+    if (!request.user) {
+      return reply.code(401).send({ message: 'Autenticación requerida' });
     }
+
+    console.log('AdminVerificationRoutes: Usuario autenticado:', request.user.email, 'Rol:', request.user.role);
+
+    if (request.user.role !== 'admin' && request.user.role !== 'moderator') {
+      console.log('AdminVerificationRoutes: Acceso denegado - Rol insuficiente');
+      return reply.code(403).send({ 
+        message: 'No tienes permisos de administrador para acceder a esta sección' 
+      });
+    }
+    
+    console.log('AdminVerificationRoutes: Acceso concedido');
   };
 
   // Aplicar middleware de admin a todas las rutas
   fastify.addHook('preHandler', verifyAdmin);
+
+  /**
+   * GET /admin/verifications/stats
+   * Obtiene estadísticas de verificaciones
+   * IMPORTANTE: Esta ruta debe estar ANTES de /:id para evitar conflictos
+   */
+  fastify.get('/stats', async (request, reply) => {
+    console.log('AdminVerificationRoutes: /stats - Obteniendo estadísticas');
+    console.log('AdminVerificationRoutes: Usuario:', request.user?.email, 'Rol:', request.user?.role);
+    
+    try {
+      const stats = await query(`
+        SELECT 
+          status,
+          COUNT(*) as count
+        FROM artist_verification_codes
+        GROUP BY status
+      `);
+      
+      console.log('AdminVerificationRoutes: Stats raw:', stats);
+
+      const statsObj = {
+        total: 0,
+        pending: 0,
+        awaiting_review: 0,
+        verified: 0,
+        failed: 0,
+        expired: 0
+      };
+
+      stats.forEach(stat => {
+        statsObj[stat.status] = stat.count;
+        statsObj.total += stat.count;
+      });
+      
+      console.log('AdminVerificationRoutes: Stats procesadas:', statsObj);
+
+      reply.code(200).send(statsObj);
+    } catch (error) {
+      console.error('AdminVerificationRoutes: ERROR obteniendo estadísticas:', error);
+      reply.code(500).send({ 
+        message: 'Error al obtener estadísticas' 
+      });
+    }
+  });
 
   /**
    * GET /admin/verifications/pending
@@ -100,7 +146,6 @@ async function adminVerificationRoutes(fastify, options) {
     }
 
     try {
-      // Nota: getVerificationStatus usa code, necesitamos adaptarlo o crear una función nueva
       const verification = await query(
         'SELECT * FROM artist_verification_codes WHERE id = ?',
         [id]
@@ -127,6 +172,10 @@ async function adminVerificationRoutes(fastify, options) {
     console.log('AdminVerificationRoutes: /:id/approve - Aprobando verificación');
     const { id } = request.params;
     const { notes } = request.body;
+    
+    console.log('AdminVerificationRoutes: ID:', id);
+    console.log('AdminVerificationRoutes: Notes:', notes);
+    console.log('AdminVerificationRoutes: Usuario:', request.user?.username);
     
     if (!id) {
       return reply.code(400).send({ message: 'ID de verificación requerido' });
@@ -181,45 +230,6 @@ async function adminVerificationRoutes(fastify, options) {
       console.error('AdminVerificationRoutes: ERROR rechazando:', error);
       reply.code(error.statusCode || 500).send({ 
         message: error.message || 'Error al rechazar verificación' 
-      });
-    }
-  });
-
-  /**
-   * GET /admin/verifications/stats
-   * Obtiene estadísticas de verificaciones
-   */
-  fastify.get('/stats', async (request, reply) => {
-    console.log('AdminVerificationRoutes: /stats - Obteniendo estadísticas');
-    
-    try {
-      const stats = await query(`
-        SELECT 
-          status,
-          COUNT(*) as count
-        FROM artist_verification_codes
-        GROUP BY status
-      `);
-
-      const statsObj = {
-        total: 0,
-        pending: 0,
-        awaiting_review: 0,
-        verified: 0,
-        failed: 0,
-        expired: 0
-      };
-
-      stats.forEach(stat => {
-        statsObj[stat.status] = stat.count;
-        statsObj.total += stat.count;
-      });
-
-      reply.code(200).send(statsObj);
-    } catch (error) {
-      console.error('AdminVerificationRoutes: ERROR obteniendo estadísticas:', error);
-      reply.code(500).send({ 
-        message: 'Error al obtener estadísticas' 
       });
     }
   });
