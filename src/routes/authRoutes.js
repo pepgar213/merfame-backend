@@ -17,7 +17,9 @@ async function authRoutes (fastify, options) {
     console.log('Rol recibido en authRoutes:', role); 
 
     if (!email || !password || !role || !username) {
-        return reply.code(400).send({ message: 'Email, contraseña, nombre de usuario y rol son requeridos.' });
+        return reply.code(400).send({ 
+            message: 'Email, contraseña, nombre de usuario y rol son requeridos.' 
+        });
     }
 
     // ✅ VALIDAR CÓDIGO DE VERIFICACIÓN PARA ARTISTAS
@@ -29,40 +31,35 @@ async function authRoutes (fastify, options) {
         }
 
         try {
-            // Verificar que el código existe y está completado
+            // ✅ CORREGIDO: Tabla correcta y validación completa
             const verification = await get(
-                'SELECT * FROM artist_verifications WHERE code = ? AND status = ?',
-                [verificationCode, 'completed']
+                `SELECT * FROM artist_verification_codes 
+                 WHERE code = ? AND status = 'verified'`,
+                [verificationCode]
             );
 
             if (!verification) {
                 return reply.code(400).send({ 
-                    message: 'Código de verificación inválido o no completado.' 
+                    message: 'Código de verificación inválido o no aprobado por un administrador.' 
                 });
             }
 
-            if (!verification.result_verified) {
+            // ✅ Verificar que no haya expirado
+            const now = new Date();
+            const expiresAt = new Date(verification.expires_at);
+            if (now > expiresAt) {
                 return reply.code(400).send({ 
-                    message: 'La verificación no fue exitosa.' 
+                    message: 'El código de verificación ha expirado. Genera uno nuevo.' 
                 });
             }
 
-            await run(
-                'UPDATE artist_verification_codes SET user_id = ? WHERE code = ?',
-                [userId, verificationCode]
-            );
-
-            // Verificar que el código no haya sido usado
-            const codeUsed = await get(
-                'SELECT * FROM artists WHERE verification_code = ?',
-                [verificationCode]
-            );
-
-            if (codeUsed) {
+            // ✅ Verificar que el código no haya sido usado
+            if (verification.user_id !== null) {
                 return reply.code(400).send({ 
                     message: 'Este código de verificación ya ha sido utilizado.' 
                 });
             }
+
         } catch (error) {
             console.error('Error validando código de verificación:', error);
             return reply.code(500).send({ 
@@ -76,7 +73,9 @@ async function authRoutes (fastify, options) {
         reply.code(201).send(result);
     } catch (error) {
         console.error('Error durante el registro en authRoutes:', error);
-        reply.code(error.statusCode || 500).send({ message: error.message || 'Error interno del servidor.' });
+        reply.code(error.statusCode || 500).send({ 
+            message: error.message || 'Error interno del servidor.' 
+        });
     }
 });
 

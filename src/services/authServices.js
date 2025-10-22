@@ -51,36 +51,54 @@ export const registerUser = async (email, password, role, username, verification
 
     // Si el rol es 'artist', crea también un perfil de artista
     if (role === 'artist') {
-      try {
-        // ✅ OBTENER DATOS DE LA VERIFICACIÓN
+    try {
         let artistData = { name: username };
         
         if (verificationCode) {
-          const verification = await get(
-            'SELECT * FROM artist_verifications WHERE code = ?',
-            [verificationCode]
-          );
+            const verification = await get(
+                'SELECT * FROM artist_verification_codes WHERE code = ?',
+                [verificationCode]
+            );
 
-          if (verification) {
-            artistData = {
-              name: verification.result_artist_name || username,
-              spotify_profile_url: verification.platform === 'spotify' ? verification.result_profile_url : null,
-              // Añadir otros campos según necesites
-            };
-          }
+            if (verification) {
+                // Extraer datos de la verificación si los hay
+                const platformData = verification.platform_data 
+                    ? JSON.parse(verification.platform_data) 
+                    : {};
+
+                artistData = {
+                    name: platformData.artistName || username,
+                    spotify_profile_url: verification.platform === 'spotify' 
+                        ? verification.platform_url 
+                        : null,
+                };
+            }
         }
 
+        // Crear perfil de artista
         await run(
-          `INSERT INTO artists (user_id, name, spotify_profile_url, verification_code) VALUES (?, ?, ?, ?)`,
-          [userId, artistData.name, artistData.spotify_profile_url, verificationCode]
+            `INSERT INTO artists (user_id, name, spotify_profile_url, verification_code) 
+             VALUES (?, ?, ?, ?)`,
+            [userId, artistData.name, artistData.spotify_profile_url, verificationCode]
         );
         
+        // ✅ IMPORTANTE: Marcar el código como usado vinculándolo al usuario
+        if (verificationCode) {
+            await run(
+                `UPDATE artist_verification_codes 
+                 SET user_id = ? 
+                 WHERE code = ?`,
+                [userId, verificationCode]
+            );
+            console.log(`✅ Código ${verificationCode} vinculado al usuario ${userId}`);
+        }
+        
         console.log(`Perfil de artista creado para el usuario ${userId}: ${artistData.name}`);
-      } catch (artistErr) {
+    } catch (artistErr) {
         console.error("Error al crear perfil de artista:", artistErr.message);
-        throw { statusCode: 500, message: 'Error al crear el perfil de artista. Inténtelo de nuevo.' };
-      }
+        throw { statusCode: 500, message: 'Error al crear el perfil de artista.' };
     }
+}
 
     // Enviar email de verificación
     try {
