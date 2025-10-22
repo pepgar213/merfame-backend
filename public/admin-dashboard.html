@@ -639,9 +639,23 @@
                     throw new Error(data.message || `Error ${response.status}: ${response.statusText}`);
                 }
                 
+                // Adaptar la estructura de la respuesta del backend
+                // El backend devuelve: { token, role, email, user_name, userId, ... }
+                // Crear objeto user compatible
+                const user = {
+                    id: data.userId,
+                    email: data.email,
+                    username: data.user_name || data.username,
+                    role: data.role,
+                    isVerified: data.isVerified,
+                    profileImageUrl: data.profileImageUrl
+                };
+                
+                console.log('👤 Usuario procesado:', user);
+                
                 // Verificar que el usuario sea admin
-                if (data.user.role !== 'admin' && data.user.role !== 'moderator') {
-                    console.error('❌ Usuario sin permisos:', data.user.role);
+                if (user.role !== 'admin' && user.role !== 'moderator') {
+                    console.error('❌ Usuario sin permisos:', user.role);
                     throw new Error('No tienes permisos de administrador');
                 }
                 
@@ -649,8 +663,8 @@
                 
                 // Guardar token y datos de usuario
                 localStorage.setItem('token', data.token);
-                localStorage.setItem('user', JSON.stringify(data.user));
-                currentUser = data.user;
+                localStorage.setItem('user', JSON.stringify(user));
+                currentUser = user;
                 
                 console.log('✅ Mostrando dashboard...');
                 
