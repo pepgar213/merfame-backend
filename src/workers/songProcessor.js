@@ -140,7 +140,8 @@ async function generateWaveform(audioFilePath) {
           frames.push(frame);
         }
 
-        const waveformData = frames.map(frame => {
+        // ✅ AQUÍ ESTÁ EL CAMBIO PRINCIPAL
+        const waveformData = frames.map((frame, index) => {
           const fftResult = fft(frame);
           const magnitudes = fftUtil.fftMag(fftResult);
           
@@ -173,7 +174,11 @@ async function generateWaveform(audioFilePath) {
             return adjusted > NOISE_THRESHOLD ? adjusted : 0;
           });
 
-          return normalizedBins;
+          // ✅ RETORNAR OBJETO CON time Y frequencies
+          return {
+            time: (index * FFT_HOP_SIZE) / SAMPLE_RATE,
+            frequencies: normalizedBins.map(v => Math.round(v * 255))
+          };
         });
 
         resolve(waveformData);
