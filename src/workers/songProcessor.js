@@ -426,67 +426,78 @@ songQueue.process(async (job) => {
     console.error('[Worker] Stack:', error.stack);
     console.error('❌'.repeat(40) + '\n');
     
-    // ============================================
-    // LIMPIEZA EN CASO DE ERROR - Eliminar de R2
-    // ============================================
-    if (uploadedFiles.length > 0) {
-      console.log(`[Worker] 🧹 Limpiando archivos subidos a R2 (${uploadedFiles.length} archivos)...`);
-      try {
-        await deleteTrackFiles(artistId, trackUniqueId);
-        console.log('[Worker] ✅ Archivos de R2 eliminados\n');
-      } catch (cleanupError) {
-        console.error('[Worker] ⚠️  Error al limpiar archivos de R2:', cleanupError.message);
+    // ✅ AGREGADO: Verificar si es el último intento
+    const isLastAttempt = job.attemptsMade >= job.opts.attempts;
+    
+    if (isLastAttempt) {
+      console.log('[Worker] 🧹 Último intento fallido, limpiando todos los archivos...\n');
+      
+      // ============================================
+      // LIMPIEZA EN CASO DE ERROR - Eliminar de R2
+      // ============================================
+      if (uploadedFiles.length > 0) {
+        console.log(`[Worker] 🧹 Limpiando archivos subidos a R2 (${uploadedFiles.length} archivos)...`);
+        try {
+          await deleteTrackFiles(artistId, trackUniqueId);
+          console.log('[Worker] ✅ Archivos de R2 eliminados\n');
+        } catch (cleanupError) {
+          console.error('[Worker] ⚠️  Error al limpiar archivos de R2:', cleanupError.message);
+        }
       }
+      
+      // ============================================
+      // LIMPIEZA DE ARCHIVOS LOCALES TEMPORALES
+      // ============================================
+      console.log('[Worker] 🧹 Limpiando archivos temporales locales...');
+      const cleanupFiles = [];
+      
+      if (tempAudioFilePath && fs.existsSync(tempAudioFilePath)) {
+        cleanupFiles.push(
+          fsp.unlink(tempAudioFilePath)
+            .then(() => console.log('[Worker]    ✅ Audio original temporal eliminado'))
+            .catch(() => {})
+        );
+      }
+      
+      if (truncatedAudioFilePath && fs.existsSync(truncatedAudioFilePath)) {
+        cleanupFiles.push(
+          fsp.unlink(truncatedAudioFilePath)
+            .then(() => console.log('[Worker]    ✅ Audio truncado eliminado'))
+            .catch(() => {})
+        );
+      }
+      
+      if (finalAudioFilePath && fs.existsSync(finalAudioFilePath)) {
+        cleanupFiles.push(
+          fsp.unlink(finalAudioFilePath)
+            .then(() => console.log('[Worker]    ✅ Audio comprimido eliminado'))
+            .catch(() => {})
+        );
+      }
+      
+      if (voiceTimestampsFilePath && fs.existsSync(voiceTimestampsFilePath)) {
+        cleanupFiles.push(
+          fsp.unlink(voiceTimestampsFilePath)
+            .then(() => console.log('[Worker]    ✅ Timestamps eliminado'))
+            .catch(() => {})
+        );
+      }
+      
+      if (waveformFilePath && fs.existsSync(waveformFilePath)) {
+        cleanupFiles.push(
+          fsp.unlink(waveformFilePath)
+            .then(() => console.log('[Worker]    ✅ Waveform eliminado'))
+            .catch(() => {})
+        );
+      }
+      
+      await Promise.all(cleanupFiles);
+      console.log('[Worker] ✅ Limpieza de archivos temporales completada\n');
+      
+    } else {
+      console.log(`[Worker] ⏭️  Intento ${job.attemptsMade}/${job.opts.attempts} fallido, conservando archivos para reintento`);
+      console.log('[Worker] 📝 El job será reintentado automáticamente por Bull\n');
     }
-    
-    // ============================================
-    // LIMPIEZA DE ARCHIVOS LOCALES TEMPORALES
-    // ============================================
-    console.log('[Worker] 🧹 Limpiando archivos temporales locales...');
-    const cleanupFiles = [];
-    
-    if (tempAudioFilePath && fs.existsSync(tempAudioFilePath)) {
-      cleanupFiles.push(
-        fsp.unlink(tempAudioFilePath)
-          .then(() => console.log('[Worker]    ✅ Audio original temporal eliminado'))
-          .catch(() => {})
-      );
-    }
-    
-    if (truncatedAudioFilePath && fs.existsSync(truncatedAudioFilePath)) {
-      cleanupFiles.push(
-        fsp.unlink(truncatedAudioFilePath)
-          .then(() => console.log('[Worker]    ✅ Audio truncado eliminado'))
-          .catch(() => {})
-      );
-    }
-    
-    if (finalAudioFilePath && fs.existsSync(finalAudioFilePath)) {
-      cleanupFiles.push(
-        fsp.unlink(finalAudioFilePath)
-          .then(() => console.log('[Worker]    ✅ Audio comprimido eliminado'))
-          .catch(() => {})
-      );
-    }
-    
-    if (voiceTimestampsFilePath && fs.existsSync(voiceTimestampsFilePath)) {
-      cleanupFiles.push(
-        fsp.unlink(voiceTimestampsFilePath)
-          .then(() => console.log('[Worker]    ✅ Timestamps eliminado'))
-          .catch(() => {})
-      );
-    }
-    
-    if (waveformFilePath && fs.existsSync(waveformFilePath)) {
-      cleanupFiles.push(
-        fsp.unlink(waveformFilePath)
-          .then(() => console.log('[Worker]    ✅ Waveform eliminado'))
-          .catch(() => {})
-      );
-    }
-    
-    await Promise.all(cleanupFiles);
-    console.log('[Worker] ✅ Limpieza de archivos temporales completada\n');
     
     throw error;
   }

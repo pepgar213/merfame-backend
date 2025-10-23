@@ -16,6 +16,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     && pip3 install --no-cache-dir --break-system-packages \
     pydub==0.25.1 \
     numpy==1.24.3 \
+    packaging \
     && rm -rf /root/.cache/pip
 
 # Crear directorio de trabajo

@@ -18,8 +18,8 @@ export async function runPythonScriptAndLog(audioPath, outputPath) {
     const tfLogLevel = process.env.TF_CPP_MIN_LOG_LEVEL || '2';
     const pythonCmd = process.env.PYTHON_COMMAND || 'python3';
     
-    // Suprime las advertencias de TensorFlow y configura el comando de Python
-    const pythonCommand = `set "TF_CPP_MIN_LOG_LEVEL=${tfLogLevel}" && ${pythonCmd} "${pythonScriptPath}" "${audioPath}" "${outputPath}"`;
+    // ✅ CORREGIDO: Usar sintaxis de Linux para variables de entorno
+    const pythonCommand = `TF_CPP_MIN_LOG_LEVEL=${tfLogLevel} ${pythonCmd} "${pythonScriptPath}" "${audioPath}" "${outputPath}"`;
     
     console.log(`[Python Runner] Comando a ejecutar: ${pythonCommand}`);
 
@@ -53,7 +53,7 @@ export async function runPythonScriptAndLog(audioPath, outputPath) {
     console.log(`[Python Runner] Output guardado en: ${logFilePath}`);
 
     // Verificar si hay errores reales (no solo advertencias de TensorFlow)
-    if (stderr.includes('Error')) {
+    if (stderr.includes('Error') || stderr.includes('ModuleNotFoundError')) {
         throw new Error(`El script de Python devolvió un error: ${stderr}`);
     }
     
