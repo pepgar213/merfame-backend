@@ -54,6 +54,7 @@ async function testR2Structure() {
     
   } catch (error) {
     console.error('❌ ERROR:', error.message);
+    console.error('Stack:', error.stack);
     throw error;
   }
 }
