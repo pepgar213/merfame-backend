@@ -78,7 +78,7 @@ export const deleteFile = async (fileUrl) => {
 };
 
 /**
- * Elimina todos los archivos de un track
+ * Elimina todos los archivos de un track (toda la carpeta)
  * @param {number} artistId - ID del artista
  * @param {string} trackUniqueId - ID único del track
  * @returns {Promise<void>}

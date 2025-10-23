@@ -21,6 +21,7 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const TEMP_DIR = join(__dirname, '..', '..', 'temp');
+const PUBLIC_DIR = join(__dirname, '..', '..', 'public');
 const execPromise = util.promisify(exec);
 
 // Asegurar que existe el directorio temporal
@@ -54,7 +55,7 @@ export const songQueue = new Queue('song-processing', redisConfig, {
 // Función para insertar canción en DB
 const insertSongIntoDb = async (title, artistId, audioUrl, coverImageUrl, duration, waveformUrl, voiceTimestampsUrl, spotifyId, youtubeId) => {
   try {
-    console.log(`[Worker] Insertando canción en DB`);
+    console.log(`[Worker] 💾 Insertando canción en DB...`);
     
     const result = await run(
       `INSERT INTO music_tracks 
@@ -64,10 +65,10 @@ const insertSongIntoDb = async (title, artistId, audioUrl, coverImageUrl, durati
     );
     
     const songId = result.lastID;
-    console.log(`✅ Canción insertada con ID: ${songId}`);
+    console.log(`[Worker] ✅ Canción insertada con ID: ${songId}`);
     return songId;
   } catch (error) {
-    console.error("❌ Error al insertar canción en DB:", error.message);
+    console.error("[Worker] ❌ Error al insertar canción en DB:", error.message);
     throw error;
   }
 };
@@ -187,7 +188,9 @@ async function generateWaveform(audioFilePath) {
   });
 }
 
-// PROCESADOR DE TRABAJOS - CON CARPETAS ORGANIZADAS
+// ==========================================
+// PROCESADOR DE TRABAJOS - CON CARPETAS ORGANIZADAS EN R2
+// ==========================================
 songQueue.process(async (job) => {
   const {
     title,
@@ -204,12 +207,13 @@ songQueue.process(async (job) => {
   console.log(`[Worker] 🎵 PROCESANDO JOB ${job.id}`);
   console.log(`[Worker] Título: ${title}`);
   console.log(`[Worker] Artist ID: ${artistId}`);
+  console.log(`[Worker] Timestamp: ${new Date().toISOString()}`);
   console.log(`${'='.repeat(80)}`);
 
   // Generar ID único para este track
   const trackUniqueId = `track-${Date.now()}-${Math.round(Math.random() * 1E9)}`;
-  console.log(`[Worker] Track Unique ID: ${trackUniqueId}`);
-  console.log(`[Worker] Estructura: artists/${artistId}/tracks/${trackUniqueId}/`);
+  console.log(`[Worker] 🆔 Track Unique ID: ${trackUniqueId}`);
+  console.log(`[Worker] 📁 Estructura R2: artists/${artistId}/tracks/${trackUniqueId}/\n`);
 
   let truncatedAudioFilePath = null;
   let finalAudioFilePath = null;
@@ -220,125 +224,169 @@ songQueue.process(async (job) => {
   try {
     await job.progress(10);
 
-    // 1. TRUNCAR AUDIO A 60 SEGUNDOS
-    console.log('[Worker] Truncando audio a 60 segundos...');
+    // ============================================
+    // FASE 1: TRUNCAR AUDIO A 60 SEGUNDOS
+    // ============================================
+    console.log('[Worker] 📐 FASE 1: Truncando audio a 60 segundos...');
     const truncatedFilename = `truncated-${Date.now()}.mp3`;
     truncatedAudioFilePath = join(TEMP_DIR, truncatedFilename);
 
     const truncateCommand = `ffmpeg -i "${tempAudioFilePath}" -t 60 -codec:a copy "${truncatedAudioFilePath}"`;
+    console.log(`[Worker] Comando FFmpeg: ${truncateCommand.substring(0, 60)}...`);
+    
     const { stderr: truncateStderr } = await execPromise(truncateCommand);
-    if (truncateStderr) console.warn(`[Worker] FFmpeg stderr:`, truncateStderr);
+    if (truncateStderr) console.warn(`[Worker] FFmpeg stderr:`, truncateStderr.substring(0, 200));
 
     // Eliminar el archivo temporal original
     await fsp.unlink(tempAudioFilePath).catch(err => 
-      console.error("[Worker] Error al eliminar archivo temporal original:", err)
+      console.error("[Worker] ⚠️  Error al eliminar archivo temporal original:", err.message)
     );
 
+    console.log('[Worker] ✅ Audio truncado correctamente\n');
     await job.progress(30);
 
-    // 2. DETECCIÓN DE VOZ
+    // ============================================
+    // FASE 2: DETECCIÓN DE VOZ
+    // ============================================
+    console.log('[Worker] 🗣️  FASE 2: Detección de voz...');
     const voiceTimestampsFilename = `${path.parse(originalAudioFilename).name}.voice.json`;
     voiceTimestampsFilePath = join(TEMP_DIR, voiceTimestampsFilename);
     
-    console.log('[Worker] Iniciando detección de voz...');
+    console.log('[Worker] Ejecutando script Python de detección de voz...');
     await Promise.race([
       runPythonScriptAndLog(truncatedAudioFilePath, voiceTimestampsFilePath),
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout en detección de voz')), 120000)
+        setTimeout(() => reject(new Error('Timeout en detección de voz (120s)')), 120000)
       )
     ]);
     
+    console.log('[Worker] ✅ Detección de voz completada\n');
     await job.progress(45);
 
-    // 3. COMPRESIÓN FINAL DE AUDIO
+    // ============================================
+    // FASE 3: COMPRESIÓN FINAL DE AUDIO
+    // ============================================
+    console.log('[Worker] 🗜️  FASE 3: Compresión final de audio...');
     const compressedAudioFilename = `compressed-${Date.now()}.mp3`;
     finalAudioFilePath = join(TEMP_DIR, compressedAudioFilename);
 
     const compressCommand = `ffmpeg -i "${truncatedAudioFilePath}" -codec:a libmp3lame -b:a 128k -vn "${finalAudioFilePath}"`;
-    console.log(`[Worker] Comprimiendo audio final...`);
+    console.log(`[Worker] Comprimiendo a 128kbps...`);
     
     const { stderr } = await execPromise(compressCommand);
-    if (stderr) console.warn(`[Worker] FFmpeg stderr: ${stderr}`);
+    if (stderr) console.warn(`[Worker] FFmpeg stderr:`, stderr.substring(0, 200));
     
-    await job.progress(60);
-
     // Eliminar el archivo truncado temporal
     await fsp.unlink(truncatedAudioFilePath).catch(err => 
-      console.error("[Worker] Error al eliminar audio truncado temporal:", err)
+      console.error("[Worker] ⚠️  Error al eliminar audio truncado temporal:", err.message)
     );
 
-    // 4. GENERACIÓN DE WAVEFORM
-    console.log('[Worker] Generando waveform...');
+    console.log('[Worker] ✅ Audio comprimido correctamente\n');
+    await job.progress(60);
+
+    // ============================================
+    // FASE 4: GENERACIÓN DE WAVEFORM
+    // ============================================
+    console.log('[Worker] 📊 FASE 4: Generación de waveform...');
     const waveformFilename = `waveform-${Date.now()}.json`;
     waveformFilePath = join(TEMP_DIR, waveformFilename);
     
+    console.log('[Worker] Analizando audio para generar waveform...');
     const waveformData = await generateWaveform(finalAudioFilePath);
     await fsp.writeFile(waveformFilePath, JSON.stringify(waveformData));
     
+    console.log(`[Worker] ✅ Waveform generado (${waveformData.length} frames)\n`);
     await job.progress(70);
 
-    // 5. SUBIR ARCHIVOS A R2 CON ESTRUCTURA DE CARPETAS
-    console.log('[Worker] 📁 Subiendo archivos con estructura organizada...');
+    // ============================================
+    // FASE 5: SUBIR ARCHIVOS A R2 CON ESTRUCTURA DE CARPETAS
+    // ============================================
+    console.log('[Worker] ☁️  FASE 5: Subiendo archivos a R2...');
+    console.log(`[Worker] Estructura: artists/${artistId}/tracks/${trackUniqueId}/\n`);
     
-    // Subir audio
-    console.log(`[Worker] Subiendo audio...`);
+    // 5.1. Subir audio
+    console.log(`[Worker] 📤 [1/4] Subiendo audio...`);
     const audioBuffer = await fsp.readFile(finalAudioFilePath);
     const audioPath = getTrackFilePath(artistId, trackUniqueId, 'audio');
+    console.log(`[Worker]    Ruta R2: ${audioPath}`);
     const audioUrl = await uploadFile(audioBuffer, audioPath, 'audio/mpeg');
     uploadedFiles.push(audioPath);
-    console.log(`[Worker] ✅ Audio: ${audioUrl}`);
+    console.log(`[Worker]    ✅ URL: ${audioUrl}\n`);
     
-    // Subir waveform
-    console.log(`[Worker] Subiendo waveform...`);
+    // 5.2. Subir waveform
+    console.log(`[Worker] 📤 [2/4] Subiendo waveform...`);
     const waveformBuffer = await fsp.readFile(waveformFilePath);
     const waveformPath = getTrackFilePath(artistId, trackUniqueId, 'waveform');
+    console.log(`[Worker]    Ruta R2: ${waveformPath}`);
     const waveformUrl = await uploadFile(waveformBuffer, waveformPath, 'application/json');
     uploadedFiles.push(waveformPath);
-    console.log(`[Worker] ✅ Waveform: ${waveformUrl}`);
+    console.log(`[Worker]    ✅ URL: ${waveformUrl}\n`);
     
-    // Subir voice timestamps
-    console.log(`[Worker] Subiendo timestamps...`);
+    // 5.3. Subir voice timestamps
+    console.log(`[Worker] 📤 [3/4] Subiendo timestamps...`);
     const timestampsBuffer = await fsp.readFile(voiceTimestampsFilePath);
     const timestampsPath = getTrackFilePath(artistId, trackUniqueId, 'timestamps');
+    console.log(`[Worker]    Ruta R2: ${timestampsPath}`);
     const voiceTimestampsUrl = await uploadFile(timestampsBuffer, timestampsPath, 'application/json');
     uploadedFiles.push(timestampsPath);
-    console.log(`[Worker] ✅ Timestamps: ${voiceTimestampsUrl}`);
+    console.log(`[Worker]    ✅ URL: ${voiceTimestampsUrl}\n`);
     
-    // Subir cover image si existe
+    // 5.4. Subir cover image si existe
     let coverImageUrl = null;
     if (coverImageFilename) {
-      console.log(`[Worker] Subiendo cover image...`);
-      const localImagePath = join(__dirname, '..', '..', 'public', 'images', coverImageFilename);
+      console.log(`[Worker] 📤 [4/4] Subiendo cover image...`);
+      const localImagePath = join(PUBLIC_DIR, 'images', coverImageFilename);
+      
       if (fs.existsSync(localImagePath)) {
         const imageBuffer = await fsp.readFile(localImagePath);
         const imageExt = path.extname(coverImageFilename).substring(1);
         const coverPath = getTrackFilePath(artistId, trackUniqueId, 'cover', imageExt);
         const contentType = imageExt === 'png' ? 'image/png' : 'image/jpeg';
+        console.log(`[Worker]    Ruta R2: ${coverPath}`);
         coverImageUrl = await uploadFile(imageBuffer, coverPath, contentType);
         uploadedFiles.push(coverPath);
-        console.log(`[Worker] ✅ Cover: ${coverImageUrl}`);
+        console.log(`[Worker]    ✅ URL: ${coverImageUrl}\n`);
         
         // Eliminar imagen local
         await fsp.unlink(localImagePath).catch(err => 
-          console.error("[Worker] Error al eliminar imagen local:", err)
+          console.error("[Worker] ⚠️  Error al eliminar imagen local:", err.message)
         );
+      } else {
+        console.log(`[Worker]    ⚠️  Imagen no encontrada en: ${localImagePath}\n`);
       }
+    } else {
+      console.log(`[Worker] ⏭️  [4/4] Sin cover image\n`);
     }
 
+    console.log(`[Worker] ✅ Todos los archivos subidos a R2 (${uploadedFiles.length} archivos)\n`);
     await job.progress(85);
 
-    // 6. LIMPIAR ARCHIVOS TEMPORALES LOCALES
-    console.log('[Worker] 🧹 Limpiando archivos temporales...');
+    // ============================================
+    // FASE 6: LIMPIAR ARCHIVOS TEMPORALES LOCALES
+    // ============================================
+    console.log('[Worker] 🧹 FASE 6: Limpiando archivos temporales...');
     const cleanupPromises = [
-      fsp.unlink(finalAudioFilePath),
-      fsp.unlink(waveformFilePath),
-      fsp.unlink(voiceTimestampsFilePath),
+      fsp.unlink(finalAudioFilePath).then(() => console.log('[Worker]    ✅ Audio temporal eliminado')),
+      fsp.unlink(waveformFilePath).then(() => console.log('[Worker]    ✅ Waveform temporal eliminado')),
+      fsp.unlink(voiceTimestampsFilePath).then(() => console.log('[Worker]    ✅ Timestamps temporal eliminado')),
     ];
     
-    await Promise.all(cleanupPromises.map(p => p.catch(err => console.warn('[Worker] Error en limpieza:', err))));
+    await Promise.all(cleanupPromises.map(p => p.catch(err => 
+      console.warn('[Worker]    ⚠️  Error en limpieza:', err.message)
+    )));
+    
+    console.log('[Worker] ✅ Limpieza completada\n');
 
-    // 7. INSERTAR EN BASE DE DATOS
-    console.log(`[Worker] 💾 Insertando en DB...`);
+    // ============================================
+    // FASE 7: INSERTAR EN BASE DE DATOS
+    // ============================================
+    console.log('[Worker] 💾 FASE 7: Insertando en base de datos...');
+    console.log(`[Worker]    Título: ${title}`);
+    console.log(`[Worker]    Artist ID: ${artistId}`);
+    console.log(`[Worker]    Duración: 60s`);
+    console.log(`[Worker]    Spotify ID: ${spotifyId || 'N/A'}`);
+    console.log(`[Worker]    YouTube ID: ${youtubeId || 'N/A'}`);
+    
     await insertSongIntoDb(
       title,
       parseInt(artistId, 10),
@@ -353,8 +401,12 @@ songQueue.process(async (job) => {
 
     await job.progress(100);
     
-    console.log('[Worker] ✅ Canción procesada exitosamente');
+    console.log('\n' + '='.repeat(80));
+    console.log('[Worker] ✅ ¡CANCIÓN PROCESADA EXITOSAMENTE!');
     console.log(`[Worker] 📁 Ubicación en R2: artists/${artistId}/tracks/${trackUniqueId}/`);
+    console.log(`[Worker] 🎵 Título: ${title}`);
+    console.log(`[Worker] 🆔 Track ID: ${trackUniqueId}`);
+    console.log('='.repeat(80) + '\n');
     
     return { 
       success: true, 
@@ -367,60 +419,110 @@ songQueue.process(async (job) => {
     };
 
   } catch (error) {
-    console.error('[Worker] ❌ Error procesando canción:', error);
+    console.error('\n' + '❌'.repeat(40));
+    console.error('[Worker] ❌ ERROR PROCESANDO CANCIÓN');
+    console.error('[Worker] Job ID:', job.id);
+    console.error('[Worker] Error:', error.message);
+    console.error('[Worker] Stack:', error.stack);
+    console.error('❌'.repeat(40) + '\n');
     
+    // ============================================
     // LIMPIEZA EN CASO DE ERROR - Eliminar de R2
+    // ============================================
     if (uploadedFiles.length > 0) {
       console.log(`[Worker] 🧹 Limpiando archivos subidos a R2 (${uploadedFiles.length} archivos)...`);
       try {
         await deleteTrackFiles(artistId, trackUniqueId);
-        console.log('[Worker] ✅ Archivos de R2 eliminados');
+        console.log('[Worker] ✅ Archivos de R2 eliminados\n');
       } catch (cleanupError) {
-        console.error('[Worker] ⚠️ Error al limpiar archivos de R2:', cleanupError);
+        console.error('[Worker] ⚠️  Error al limpiar archivos de R2:', cleanupError.message);
       }
     }
     
+    // ============================================
     // LIMPIEZA DE ARCHIVOS LOCALES TEMPORALES
+    // ============================================
+    console.log('[Worker] 🧹 Limpiando archivos temporales locales...');
     const cleanupFiles = [];
     
     if (tempAudioFilePath && fs.existsSync(tempAudioFilePath)) {
-      cleanupFiles.push(fsp.unlink(tempAudioFilePath));
+      cleanupFiles.push(
+        fsp.unlink(tempAudioFilePath)
+          .then(() => console.log('[Worker]    ✅ Audio original temporal eliminado'))
+          .catch(() => {})
+      );
     }
     
     if (truncatedAudioFilePath && fs.existsSync(truncatedAudioFilePath)) {
-      cleanupFiles.push(fsp.unlink(truncatedAudioFilePath));
+      cleanupFiles.push(
+        fsp.unlink(truncatedAudioFilePath)
+          .then(() => console.log('[Worker]    ✅ Audio truncado eliminado'))
+          .catch(() => {})
+      );
     }
     
     if (finalAudioFilePath && fs.existsSync(finalAudioFilePath)) {
-      cleanupFiles.push(fsp.unlink(finalAudioFilePath));
+      cleanupFiles.push(
+        fsp.unlink(finalAudioFilePath)
+          .then(() => console.log('[Worker]    ✅ Audio comprimido eliminado'))
+          .catch(() => {})
+      );
     }
     
     if (voiceTimestampsFilePath && fs.existsSync(voiceTimestampsFilePath)) {
-      cleanupFiles.push(fsp.unlink(voiceTimestampsFilePath));
+      cleanupFiles.push(
+        fsp.unlink(voiceTimestampsFilePath)
+          .then(() => console.log('[Worker]    ✅ Timestamps eliminado'))
+          .catch(() => {})
+      );
     }
     
     if (waveformFilePath && fs.existsSync(waveformFilePath)) {
-      cleanupFiles.push(fsp.unlink(waveformFilePath));
+      cleanupFiles.push(
+        fsp.unlink(waveformFilePath)
+          .then(() => console.log('[Worker]    ✅ Waveform eliminado'))
+          .catch(() => {})
+      );
     }
     
-    await Promise.all(cleanupFiles.map(p => p.catch(() => {})));
+    await Promise.all(cleanupFiles);
+    console.log('[Worker] ✅ Limpieza de archivos temporales completada\n');
     
     throw error;
   }
 });
 
-// Event listeners
+// ==========================================
+// EVENT LISTENERS
+// ==========================================
 songQueue.on('completed', (job, result) => {
-  console.log(`✅ Job ${job.id} completado`);
-  console.log(`   📁 Estructura: ${result.structure}`);
+  console.log(`\n✅ ========== JOB ${job.id} COMPLETADO ==========`);
+  console.log(`   Título: ${job.data.title}`);
+  console.log(`   Track ID: ${result.trackUniqueId}`);
+  console.log(`   Estructura: ${result.structure}`);
+  console.log(`   Audio: ${result.audioUrl}`);
+  console.log('='.repeat(50) + '\n');
 });
 
 songQueue.on('failed', (job, err) => {
-  console.error(`❌ Job ${job.id} falló:`, err.message);
+  console.error(`\n❌ ========== JOB ${job.id} FALLÓ ==========`);
+  console.error(`   Título: ${job.data.title}`);
+  console.error(`   Error: ${err.message}`);
+  console.error('='.repeat(50) + '\n');
 });
 
 songQueue.on('error', (error) => {
-  console.error('❌ Error en la cola:', error);
+  console.error('❌ Error en la cola de procesamiento:', error.message);
 });
 
-console.log('⚙️  Worker iniciado y escuchando trabajos...');
+songQueue.on('stalled', (job) => {
+  console.warn(`⚠️  Job ${job.id} se ha estancado (stalled)`);
+});
+
+console.log('\n' + '='.repeat(80));
+console.log('⚙️  WORKER DE PROCESAMIENTO DE CANCIONES INICIADO');
+console.log('='.repeat(80));
+console.log('✅ Escuchando trabajos en la cola "song-processing"...');
+console.log('📁 Estructura de almacenamiento: artists/{artist_id}/tracks/{track_id}/');
+console.log('☁️  Modo de almacenamiento:', process.env.STORAGE_MODE || 'local');
+console.log('='.repeat(80) + '\n');

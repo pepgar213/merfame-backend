@@ -11,44 +11,49 @@ async function testR2Structure() {
   const testTrackId = 'test-' + Date.now();
   
   try {
-    console.log('1️⃣ Subiendo archivos de prueba...\n');
+    console.log('1️⃣ Subiendo archivos de prueba con estructura de carpetas...\n');
     
     // Audio
     const audioPath = getTrackFilePath(testArtistId, testTrackId, 'audio');
-    console.log(`   Audio path: ${audioPath}`);
+    console.log(`   📁 Audio path: ${audioPath}`);
     const audioUrl = await uploadFile(Buffer.from('fake audio data'), audioPath, 'audio/mpeg');
     console.log(`   ✅ Subido: ${audioUrl}\n`);
     
     // Cover
     const coverPath = getTrackFilePath(testArtistId, testTrackId, 'cover', 'jpg');
-    console.log(`   Cover path: ${coverPath}`);
+    console.log(`   📁 Cover path: ${coverPath}`);
     const coverUrl = await uploadFile(Buffer.from('fake image data'), coverPath, 'image/jpeg');
     console.log(`   ✅ Subido: ${coverUrl}\n`);
     
     // Waveform
     const waveformPath = getTrackFilePath(testArtistId, testTrackId, 'waveform');
-    console.log(`   Waveform path: ${waveformPath}`);
+    console.log(`   📁 Waveform path: ${waveformPath}`);
     const waveformUrl = await uploadFile(Buffer.from('{"data": [0.1, 0.2]}'), waveformPath, 'application/json');
     console.log(`   ✅ Subido: ${waveformUrl}\n`);
     
     // Timestamps
     const timestampsPath = getTrackFilePath(testArtistId, testTrackId, 'timestamps');
-    console.log(`   Timestamps path: ${timestampsPath}`);
+    console.log(`   📁 Timestamps path: ${timestampsPath}`);
     const timestampsUrl = await uploadFile(Buffer.from('{"segments": []}'), timestampsPath, 'application/json');
     console.log(`   ✅ Subido: ${timestampsUrl}\n`);
     
-    console.log('2️⃣ Verificando estructura creada...\n');
-    console.log(`   📁 Estructura en R2:`);
-    console.log(`   artists/${testArtistId}/tracks/${testTrackId}/`);
-    console.log(`   ├── audio.mp3`);
-    console.log(`   ├── cover.jpg`);
-    console.log(`   ├── waveform.json`);
-    console.log(`   └── timestamps.json\n`);
+    console.log('2️⃣ Verificando estructura creada en R2...\n');
+    console.log(`   📂 Estructura:`);
+    console.log(`   merfame-media/`);
+    console.log(`   └── artists/`);
+    console.log(`       └── ${testArtistId}/`);
+    console.log(`           └── tracks/`);
+    console.log(`               └── ${testTrackId}/`);
+    console.log(`                   ├── audio.mp3`);
+    console.log(`                   ├── cover.jpg`);
+    console.log(`                   ├── waveform.json`);
+    console.log(`                   └── timestamps.json\n`);
     
     console.log('3️⃣ Probando eliminación de track completo...\n');
     await deleteTrackFiles(testArtistId, testTrackId);
     console.log(`   ✅ Todos los archivos del track eliminados\n`);
     
+    console.log('=' .repeat(60));
     console.log('✅ ¡TODAS LAS PRUEBAS PASARON!');
     console.log('✅ La estructura de carpetas funciona correctamente\n');
     
