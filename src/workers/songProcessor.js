@@ -6,17 +6,25 @@ import fsp from 'fs/promises';
 import fs from 'fs';
 import { exec } from 'child_process';
 import util from 'util';
-import db from '../db/index.js';
+import path from 'path';
 import pkg from 'fft-js';
 const { fft, util: fftUtil } = pkg;
 import { runPythonScriptAndLog } from '../utils/pythonRunner.js';
-import path from 'path';
-import { run } from '../db/queryHelper.js'; 
+import { run } from '../db/queryHelper.js';
+import { 
+  uploadFile, 
+  getTrackFilePath, 
+  getPublicUrl,
+  deleteTrackFiles 
+} from '../services/storageService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const PUBLIC_DIR = join(__dirname, '..', '..', 'public');
+const TEMP_DIR = join(__dirname, '..', '..', 'temp');
 const execPromise = util.promisify(exec);
+
+// Asegurar que existe el directorio temporal
+await fsp.mkdir(TEMP_DIR, { recursive: true });
 
 const redisConfig = process.env.REDIS_URL 
   ? process.env.REDIS_URL 
@@ -25,8 +33,6 @@ const redisConfig = process.env.REDIS_URL
       port: parseInt(process.env.REDIS_PORT || '6379'),
     };
 
-
-// Crear la cola de trabajos
 export const songQueue = new Queue('song-processing', redisConfig, {
   settings: {
     stalledInterval: 30000,
@@ -45,10 +51,10 @@ export const songQueue = new Queue('song-processing', redisConfig, {
   },
 });
 
-// Función para insertar canción en DB - CORREGIDA
+// Función para insertar canción en DB
 const insertSongIntoDb = async (title, artistId, audioUrl, coverImageUrl, duration, waveformUrl, voiceTimestampsUrl, spotifyId, youtubeId) => {
   try {
-    console.log(`[Worker] Insertando canción en DB con spotify_id: ${spotifyId}, youtube_id: ${youtubeId}`);
+    console.log(`[Worker] Insertando canción en DB`);
     
     const result = await run(
       `INSERT INTO music_tracks 
@@ -85,146 +91,154 @@ async function generateWaveform(audioFilePath) {
   const fftBinToVisualBin = new Array(Math.floor(FFT_FRAME_SIZE/2));
   for (let k = 0; k < fftBinToVisualBin.length; k++) {
     const frequencyOfFftBin = k * fftBinWidthHz;
-    if (frequencyOfFftBin >= MIN_FREQUENCY_HZ && frequencyOfFftBin <= MAX_FREQUENCY_HZ) {
-      const normalizedFreq = (frequencyOfFftBin - MIN_FREQUENCY_HZ) / maxMinusMinFreq;
-      const gammaCorrectedNormalizedFreq = Math.pow(normalizedFreq, 1 / GAMMA);
-      let binIndex = Math.floor(gammaCorrectedNormalizedFreq * NUM_VISUAL_BINS);
-      if (binIndex < 0) binIndex = 0;
-      if (binIndex >= NUM_VISUAL_BINS) binIndex = NUM_VISUAL_BINS - 1;
-      fftBinToVisualBin[k] = binIndex;
-    } else {
+    if (frequencyOfFftBin < MIN_FREQUENCY_HZ || frequencyOfFftBin >= MAX_FREQUENCY_HZ) {
       fftBinToVisualBin[k] = -1;
+      continue;
     }
+    const normalizedFrequency = (frequencyOfFftBin - MIN_FREQUENCY_HZ) / maxMinusMinFreq;
+    const visualBinFloat = Math.pow(normalizedFrequency, GAMMA) * NUM_VISUAL_BINS;
+    fftBinToVisualBin[k] = Math.min(Math.floor(visualBinFloat), NUM_VISUAL_BINS - 1);
   }
 
-  const ffmpegCommand = `ffmpeg -i "${audioFilePath}" -ac 1 -ar ${SAMPLE_RATE} -f s16le -c:a pcm_s16le -map 0:a -`;
-  const result = await execPromise(ffmpegCommand, {
-    encoding: 'buffer',
-    maxBuffer: 1024 * 1024 * 50
-  });
+  const pcmCommand = `ffmpeg -i "${audioFilePath}" -f s16le -acodec pcm_s16le -ar ${SAMPLE_RATE} -ac 1 -`;
 
-  const audioBufferStdout = result.stdout;
-  const audioSamples = [];
-
-  for (let i = 0; i < audioBufferStdout.length; i += 2) {
-    audioSamples.push(audioBufferStdout.readInt16LE(i));
-  }
-
-  const waveformData = [];
-
-  for (let i = 0; i < audioSamples.length - FFT_FRAME_SIZE; i += FFT_HOP_SIZE) {
-    const frame = audioSamples.slice(i, i + FFT_FRAME_SIZE);
-    const complexResult = fft(frame);
-    const magnitudes = fftUtil.fftMag(complexResult);
-
-    const binnedFrequencies = new Array(NUM_VISUAL_BINS).fill(0);
-
-    for (let k = 0; k < magnitudes.length / 2; k++) {
-      const visualBinIndex = fftBinToVisualBin[k];
-      if (visualBinIndex !== -1) {
-        const magnitude = magnitudes[k];
-        if (magnitude >= NOISE_THRESHOLD) {
-          binnedFrequencies[visualBinIndex] += magnitude;
-        }
-      }
-    }
-
-    const smoothedBinnedFrequencies = new Array(NUM_VISUAL_BINS).fill(0);
-    for (let binIndex = 0; binIndex < NUM_VISUAL_BINS; binIndex++) {
-      let smoothedValue = 0;
-      let totalWeight = 0;
-      for (let w = 0; w < SMOOTHING_WEIGHTS.length; w++) {
-        const neighborOffset = w - 1;
-        const neighborIndex = binIndex + neighborOffset;
-        if (neighborIndex >= 0 && neighborIndex < NUM_VISUAL_BINS) {
-          smoothedValue += binnedFrequencies[neighborIndex] * SMOOTHING_WEIGHTS[w];
-          totalWeight += SMOOTHING_WEIGHTS[w];
-        }
-      }
-      smoothedBinnedFrequencies[binIndex] = totalWeight > 0 ? smoothedValue / totalWeight : 0;
-    }
-
-    let maxMagnitude = 0;
-    for (let j = 0; j < smoothedBinnedFrequencies.length; j++) {
-      if (smoothedBinnedFrequencies[j] > maxMagnitude) {
-        maxMagnitude = smoothedBinnedFrequencies[j];
-      }
-    }
-
-    const normalizedBinnedFrequencies = new Array(NUM_VISUAL_BINS);
-    const logMax = Math.log(maxMagnitude + 1);
+  return new Promise((resolve, reject) => {
+    const ffmpegProcess = exec(pcmCommand, { encoding: 'buffer', maxBuffer: 50 * 1024 * 1024 });
     
-    for (let j = 0; j < smoothedBinnedFrequencies.length; j++) {
-      const val = smoothedBinnedFrequencies[j];
-      let scaledLogValue = 0;
-      
-      if (maxMagnitude > 0) {
-        const logVal = Math.log(val + 1);
-        scaledLogValue = logVal / logMax;
+    let pcmData = Buffer.alloc(0);
+    
+    ffmpegProcess.stdout.on('data', (chunk) => {
+      pcmData = Buffer.concat([pcmData, chunk]);
+    });
+
+    ffmpegProcess.stderr.on('data', (data) => {
+      // FFmpeg escribe info en stderr
+    });
+
+    ffmpegProcess.on('close', (code) => {
+      if (code !== 0) {
+        return reject(new Error(`FFmpeg exited with code ${code}`));
       }
 
-      const dynamicValue = Math.pow(scaledLogValue, VOLUME_SENSITIVITY_EXPONENT);
-      normalizedBinnedFrequencies[j] = Math.min(255, Math.round(dynamicValue * 255));
-    }
+      try {
+        const numSamples = Math.floor(pcmData.length / 2);
+        const samples = new Array(numSamples);
+        for (let i = 0; i < numSamples; i++) {
+          samples[i] = pcmData.readInt16LE(i * 2) / 32768.0;
+        }
 
-    waveformData.push({
-      time: (i / SAMPLE_RATE),
-      frequencies: normalizedBinnedFrequencies
+        const frames = [];
+        for (let i = 0; i + FFT_FRAME_SIZE <= numSamples; i += FFT_HOP_SIZE) {
+          const frame = samples.slice(i, i + FFT_FRAME_SIZE);
+          
+          for (let j = 0; j < FFT_FRAME_SIZE; j++) {
+            const windowValue = 0.5 * (1 - Math.cos((2 * Math.PI * j) / (FFT_FRAME_SIZE - 1)));
+            frame[j] *= windowValue;
+          }
+          
+          frames.push(frame);
+        }
+
+        const waveformData = frames.map(frame => {
+          const fftResult = fft(frame);
+          const magnitudes = fftUtil.fftMag(fftResult);
+          
+          const visualBins = new Array(NUM_VISUAL_BINS).fill(0);
+          for (let k = 0; k < magnitudes.length; k++) {
+            const binIndex = fftBinToVisualBin[k];
+            if (binIndex >= 0) {
+              visualBins[binIndex] += magnitudes[k];
+            }
+          }
+
+          const smoothedBins = new Array(NUM_VISUAL_BINS);
+          for (let i = 0; i < NUM_VISUAL_BINS; i++) {
+            let sum = 0;
+            let weightSum = 0;
+            for (let j = 0; j < SMOOTHING_WEIGHTS.length; j++) {
+              const neighborIndex = i - 1 + j;
+              if (neighborIndex >= 0 && neighborIndex < NUM_VISUAL_BINS) {
+                sum += visualBins[neighborIndex] * SMOOTHING_WEIGHTS[j];
+                weightSum += SMOOTHING_WEIGHTS[j];
+              }
+            }
+            smoothedBins[i] = sum / weightSum;
+          }
+
+          const maxBin = Math.max(...smoothedBins);
+          const normalizedBins = smoothedBins.map(val => {
+            const normalized = val / (maxBin || 1);
+            const adjusted = Math.pow(normalized, VOLUME_SENSITIVITY_EXPONENT);
+            return adjusted > NOISE_THRESHOLD ? adjusted : 0;
+          });
+
+          return normalizedBins;
+        });
+
+        resolve(waveformData);
+      } catch (err) {
+        reject(err);
+      }
     });
-  }
 
-  return waveformData;
+    ffmpegProcess.on('error', (err) => {
+      reject(err);
+    });
+  });
 }
 
-// EXPORTAR el procesador como función
-export const processSong = async (job) => {
-  const { 
-    title, 
-    artistId, 
-    duration, 
-    tempAudioFilePath, 
+// PROCESADOR DE TRABAJOS - CON CARPETAS ORGANIZADAS
+songQueue.process(async (job) => {
+  const {
+    title,
+    artistId,
+    duration,
+    tempAudioFilePath,
     originalAudioFilename,
     coverImageFilename,
     spotifyId,
     youtubeId
   } = job.data;
 
-  let compressedAudioFilename = null;
-  let voiceTimestampsFilePath = null;
-  let finalAudioFilePath = null;
+  console.log(`\n${'='.repeat(80)}`);
+  console.log(`[Worker] 🎵 PROCESANDO JOB ${job.id}`);
+  console.log(`[Worker] Título: ${title}`);
+  console.log(`[Worker] Artist ID: ${artistId}`);
+  console.log(`${'='.repeat(80)}`);
+
+  // Generar ID único para este track
+  const trackUniqueId = `track-${Date.now()}-${Math.round(Math.random() * 1E9)}`;
+  console.log(`[Worker] Track Unique ID: ${trackUniqueId}`);
+  console.log(`[Worker] Estructura: artists/${artistId}/tracks/${trackUniqueId}/`);
+
   let truncatedAudioFilePath = null;
+  let finalAudioFilePath = null;
+  let voiceTimestampsFilePath = null;
+  let waveformFilePath = null;
+  let uploadedFiles = [];
 
   try {
     await job.progress(10);
 
-    console.log(`[Worker] Verificando archivo: ${tempAudioFilePath}`);
-    if (!fs.existsSync(tempAudioFilePath)) {
-      throw new Error(`Archivo de audio no encontrado: ${tempAudioFilePath}`);
-    }
-    
-    const fileStats = await fsp.stat(tempAudioFilePath);
-    console.log(`[Worker] Archivo encontrado, tamaño: ${fileStats.size} bytes`);
+    // 1. TRUNCAR AUDIO A 60 SEGUNDOS
+    console.log('[Worker] Truncando audio a 60 segundos...');
+    const truncatedFilename = `truncated-${Date.now()}.mp3`;
+    truncatedAudioFilePath = join(TEMP_DIR, truncatedFilename);
 
-    // 1. TRUNCAR Y APLICAR FADEOUT (LO PRIMERO)
-    console.log('[Worker] Truncando audio a 1 minuto y aplicando fadeout de 5 segundos...');
-    const truncatedAudioFilename = `truncated-${Date.now()}-${Math.round(Math.random() * 1E9)}.mp3`;
-    truncatedAudioFilePath = join(PUBLIC_DIR, 'audio', truncatedAudioFilename);
-    
-    // Truncar a 60 segundos y aplicar fadeout de 5 segundos desde el segundo 55
-    const truncateCommand = `ffmpeg -i "${tempAudioFilePath}" -t 60 -af "afade=t=out:st=55:d=5" -codec:a libmp3lame -b:a 192k -vn "${truncatedAudioFilePath}"`;
+    const truncateCommand = `ffmpeg -i "${tempAudioFilePath}" -t 60 -codec:a copy "${truncatedAudioFilePath}"`;
     const { stderr: truncateStderr } = await execPromise(truncateCommand);
-    if (truncateStderr) console.warn(`[Worker] FFmpeg truncate stderr: ${truncateStderr}`);
-    
-    // Eliminar el archivo original temporal
-    await fsp.unlink(tempAudioFilePath).catch(err => 
-      console.error("[Worker] Error al eliminar audio temporal original:", err)
-    );
-    
-    await job.progress(25);
+    if (truncateStderr) console.warn(`[Worker] FFmpeg stderr:`, truncateStderr);
 
-    // 2. DETECCIÓN DE VOZ (usando el audio truncado)
+    // Eliminar el archivo temporal original
+    await fsp.unlink(tempAudioFilePath).catch(err => 
+      console.error("[Worker] Error al eliminar archivo temporal original:", err)
+    );
+
+    await job.progress(30);
+
+    // 2. DETECCIÓN DE VOZ
     const voiceTimestampsFilename = `${path.parse(originalAudioFilename).name}.voice.json`;
-    voiceTimestampsFilePath = join(PUBLIC_DIR, 'timestamps', voiceTimestampsFilename);
+    voiceTimestampsFilePath = join(TEMP_DIR, voiceTimestampsFilename);
     
     console.log('[Worker] Iniciando detección de voz...');
     await Promise.race([
@@ -237,8 +251,8 @@ export const processSong = async (job) => {
     await job.progress(45);
 
     // 3. COMPRESIÓN FINAL DE AUDIO
-    compressedAudioFilename = `audio-${Date.now()}-${Math.round(Math.random() * 1E9)}.mp3`;
-    finalAudioFilePath = join(PUBLIC_DIR, 'audio', compressedAudioFilename);
+    const compressedAudioFilename = `compressed-${Date.now()}.mp3`;
+    finalAudioFilePath = join(TEMP_DIR, compressedAudioFilename);
 
     const compressCommand = `ffmpeg -i "${truncatedAudioFilePath}" -codec:a libmp3lame -b:a 128k -vn "${finalAudioFilePath}"`;
     console.log(`[Worker] Comprimiendo audio final...`);
@@ -255,28 +269,82 @@ export const processSong = async (job) => {
 
     // 4. GENERACIÓN DE WAVEFORM
     console.log('[Worker] Generando waveform...');
-    const waveformFileName = `${compressedAudioFilename}.json`;
-    const waveformFilePath = join(PUBLIC_DIR, 'waveforms', waveformFileName);
+    const waveformFilename = `waveform-${Date.now()}.json`;
+    waveformFilePath = join(TEMP_DIR, waveformFilename);
     
     const waveformData = await generateWaveform(finalAudioFilePath);
     await fsp.writeFile(waveformFilePath, JSON.stringify(waveformData));
     
-    await job.progress(80);
+    await job.progress(70);
 
-    // 5. INSERTAR EN BASE DE DATOS - Siempre con duración de 60 segundos
-    const audioUrl = `/audio/${compressedAudioFilename}`;
-    const coverImageUrl = coverImageFilename ? `/images/${coverImageFilename}` : null;
-    const waveformUrl = `/waveforms/${waveformFileName}`;
-    const voiceTimestampsUrl = `/timestamps/${voiceTimestampsFilename}`;
+    // 5. SUBIR ARCHIVOS A R2 CON ESTRUCTURA DE CARPETAS
+    console.log('[Worker] 📁 Subiendo archivos con estructura organizada...');
+    
+    // Subir audio
+    console.log(`[Worker] Subiendo audio...`);
+    const audioBuffer = await fsp.readFile(finalAudioFilePath);
+    const audioPath = getTrackFilePath(artistId, trackUniqueId, 'audio');
+    const audioUrl = await uploadFile(audioBuffer, audioPath, 'audio/mpeg');
+    uploadedFiles.push(audioPath);
+    console.log(`[Worker] ✅ Audio: ${audioUrl}`);
+    
+    // Subir waveform
+    console.log(`[Worker] Subiendo waveform...`);
+    const waveformBuffer = await fsp.readFile(waveformFilePath);
+    const waveformPath = getTrackFilePath(artistId, trackUniqueId, 'waveform');
+    const waveformUrl = await uploadFile(waveformBuffer, waveformPath, 'application/json');
+    uploadedFiles.push(waveformPath);
+    console.log(`[Worker] ✅ Waveform: ${waveformUrl}`);
+    
+    // Subir voice timestamps
+    console.log(`[Worker] Subiendo timestamps...`);
+    const timestampsBuffer = await fsp.readFile(voiceTimestampsFilePath);
+    const timestampsPath = getTrackFilePath(artistId, trackUniqueId, 'timestamps');
+    const voiceTimestampsUrl = await uploadFile(timestampsBuffer, timestampsPath, 'application/json');
+    uploadedFiles.push(timestampsPath);
+    console.log(`[Worker] ✅ Timestamps: ${voiceTimestampsUrl}`);
+    
+    // Subir cover image si existe
+    let coverImageUrl = null;
+    if (coverImageFilename) {
+      console.log(`[Worker] Subiendo cover image...`);
+      const localImagePath = join(__dirname, '..', '..', 'public', 'images', coverImageFilename);
+      if (fs.existsSync(localImagePath)) {
+        const imageBuffer = await fsp.readFile(localImagePath);
+        const imageExt = path.extname(coverImageFilename).substring(1);
+        const coverPath = getTrackFilePath(artistId, trackUniqueId, 'cover', imageExt);
+        const contentType = imageExt === 'png' ? 'image/png' : 'image/jpeg';
+        coverImageUrl = await uploadFile(imageBuffer, coverPath, contentType);
+        uploadedFiles.push(coverPath);
+        console.log(`[Worker] ✅ Cover: ${coverImageUrl}`);
+        
+        // Eliminar imagen local
+        await fsp.unlink(localImagePath).catch(err => 
+          console.error("[Worker] Error al eliminar imagen local:", err)
+        );
+      }
+    }
 
-    console.log(`[Worker] Insertando en DB con spotify_id: ${spotifyId}, youtube_id: ${youtubeId}`);
+    await job.progress(85);
 
+    // 6. LIMPIAR ARCHIVOS TEMPORALES LOCALES
+    console.log('[Worker] 🧹 Limpiando archivos temporales...');
+    const cleanupPromises = [
+      fsp.unlink(finalAudioFilePath),
+      fsp.unlink(waveformFilePath),
+      fsp.unlink(voiceTimestampsFilePath),
+    ];
+    
+    await Promise.all(cleanupPromises.map(p => p.catch(err => console.warn('[Worker] Error en limpieza:', err))));
+
+    // 7. INSERTAR EN BASE DE DATOS
+    console.log(`[Worker] 💾 Insertando en DB...`);
     await insertSongIntoDb(
       title,
       parseInt(artistId, 10),
       audioUrl,
       coverImageUrl,
-      60, // Duración fija de 60 segundos
+      60,
       waveformUrl,
       voiceTimestampsUrl,
       spotifyId || null,
@@ -284,96 +352,75 @@ export const processSong = async (job) => {
     );
 
     await job.progress(100);
-
-    console.log('[Worker] Canción procesada exitosamente');
+    
+    console.log('[Worker] ✅ Canción procesada exitosamente');
+    console.log(`[Worker] 📁 Ubicación en R2: artists/${artistId}/tracks/${trackUniqueId}/`);
     
     return { 
       success: true, 
       audioUrl, 
       coverImageUrl, 
       waveformUrl,
-      voiceTimestampsUrl 
+      voiceTimestampsUrl,
+      trackUniqueId,
+      structure: `artists/${artistId}/tracks/${trackUniqueId}/`
     };
 
   } catch (error) {
-    console.error('[Worker] Error procesando canción:', error);
+    console.error('[Worker] ❌ Error procesando canción:', error);
     
-    // LIMPIEZA EN CASO DE ERROR
-    const cleanupFiles = [];
-    
-    if (tempAudioFilePath && fs.existsSync(tempAudioFilePath)) {
-      cleanupFiles.push(
-        fsp.unlink(tempAudioFilePath)
-          .then(() => console.log(`[Worker] Limpieza: archivo temporal eliminado`))
-          .catch(err => console.error(`[Worker] Error al eliminar audio temporal: ${err}`))
-      );
-    }
-    
-    if (truncatedAudioFilePath && fs.existsSync(truncatedAudioFilePath)) {
-      cleanupFiles.push(
-        fsp.unlink(truncatedAudioFilePath)
-          .then(() => console.log(`[Worker] Limpieza: audio truncado eliminado`))
-          .catch(err => console.error(`[Worker] Error al eliminar audio truncado: ${err}`))
-      );
-    }
-    
-    if (finalAudioFilePath && fs.existsSync(finalAudioFilePath)) {
-      cleanupFiles.push(
-        fsp.unlink(finalAudioFilePath)
-          .then(() => console.log(`[Worker] Limpieza: audio comprimido eliminado`))
-          .catch(err => console.error(`[Worker] Error al eliminar audio comprimido: ${err}`))
-      );
-    }
-    
-    if (voiceTimestampsFilePath && fs.existsSync(voiceTimestampsFilePath)) {
-      cleanupFiles.push(
-        fsp.unlink(voiceTimestampsFilePath)
-          .then(() => console.log(`[Worker] Limpieza: timestamps eliminados`))
-          .catch(err => console.error(`[Worker] Error al eliminar timestamps: ${err}`))
-      );
-    }
-    
-    if (compressedAudioFilename) {
-      const waveformPath = join(PUBLIC_DIR, 'waveforms', `${compressedAudioFilename}.json`);
-      if (fs.existsSync(waveformPath)) {
-        cleanupFiles.push(
-          fsp.unlink(waveformPath)
-            .then(() => console.log(`[Worker] Limpieza: waveform eliminado`))
-            .catch(err => console.error(`[Worker] Error al eliminar waveform: ${err}`))
-        );
+    // LIMPIEZA EN CASO DE ERROR - Eliminar de R2
+    if (uploadedFiles.length > 0) {
+      console.log(`[Worker] 🧹 Limpiando archivos subidos a R2 (${uploadedFiles.length} archivos)...`);
+      try {
+        await deleteTrackFiles(artistId, trackUniqueId);
+        console.log('[Worker] ✅ Archivos de R2 eliminados');
+      } catch (cleanupError) {
+        console.error('[Worker] ⚠️ Error al limpiar archivos de R2:', cleanupError);
       }
     }
     
-    await Promise.allSettled(cleanupFiles);
+    // LIMPIEZA DE ARCHIVOS LOCALES TEMPORALES
+    const cleanupFiles = [];
+    
+    if (tempAudioFilePath && fs.existsSync(tempAudioFilePath)) {
+      cleanupFiles.push(fsp.unlink(tempAudioFilePath));
+    }
+    
+    if (truncatedAudioFilePath && fs.existsSync(truncatedAudioFilePath)) {
+      cleanupFiles.push(fsp.unlink(truncatedAudioFilePath));
+    }
+    
+    if (finalAudioFilePath && fs.existsSync(finalAudioFilePath)) {
+      cleanupFiles.push(fsp.unlink(finalAudioFilePath));
+    }
+    
+    if (voiceTimestampsFilePath && fs.existsSync(voiceTimestampsFilePath)) {
+      cleanupFiles.push(fsp.unlink(voiceTimestampsFilePath));
+    }
+    
+    if (waveformFilePath && fs.existsSync(waveformFilePath)) {
+      cleanupFiles.push(fsp.unlink(waveformFilePath));
+    }
+    
+    await Promise.all(cleanupFiles.map(p => p.catch(() => {})));
     
     throw error;
   }
-};
+});
 
-// SOLO registrar el procesador si estamos en el proceso worker
-const isWorkerProcess = process.argv[1] && (
-  process.argv[1].endsWith('worker.js') || 
-  process.argv[1].endsWith('src/worker.js') ||
-  process.argv[1].includes('src\\worker.js')
-);
+// Event listeners
+songQueue.on('completed', (job, result) => {
+  console.log(`✅ Job ${job.id} completado`);
+  console.log(`   📁 Estructura: ${result.structure}`);
+});
 
-if (isWorkerProcess) {
-  console.log('[Worker] Registrando procesador de trabajos...');
-  songQueue.process(processSong);
-  
-  songQueue.on('completed', (job, result) => {
-    console.log(`[Worker] Job ${job.id} completado exitosamente`);
-  });
+songQueue.on('failed', (job, err) => {
+  console.error(`❌ Job ${job.id} falló:`, err.message);
+});
 
-  songQueue.on('failed', (job, err) => {
-    console.error(`[Worker] Job ${job.id} falló:`, err.message);
-  });
+songQueue.on('error', (error) => {
+  console.error('❌ Error en la cola:', error);
+});
 
-  songQueue.on('progress', (job, progress) => {
-    console.log(`[Worker] Job ${job.id} progreso: ${progress}%`);
-  });
-
-  songQueue.on('error', (error) => {
-    console.error('[Queue] Error en la cola:', error);
-  });
-}
+console.log('⚙️  Worker iniciado y escuchando trabajos...');
