@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Instalar dependencias de Python para Silero VAD
-RUN pip3 install --no-cache-dir \
+RUN pip3 install --no-cache-dir --break-system-packages \
     torch==2.0.1 \
     torchaudio==2.0.2 \
     pydub==0.25.1 \
