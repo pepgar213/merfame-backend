@@ -5,7 +5,7 @@ RUN apk add --no-cache \
     ffmpeg \
     python3 \
     py3-pip \
-    && pip3 install --no-cache-dir \
+    && pip3 install --break-system-packages --no-cache-dir \
     tensorflow==2.13.0 \
     numpy==1.24.3 \
     webrtcvad==2.0.10
