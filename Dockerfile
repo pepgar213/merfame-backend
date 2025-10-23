@@ -1,21 +1,22 @@
-# Usar imagen base de Node.js con Debian (mejor compatibilidad con Python/PyTorch)
+# Usar imagen base de Node.js con Debian
 FROM node:18-slim
 
-# Instalar dependencias del sistema
+# Instalar dependencias del sistema (solo runtime, sin build-essential)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     python3 \
     python3-pip \
-    python3-dev \
-    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Instalar dependencias de Python para Silero VAD
+# Instalar PyTorch CPU-only (mucho más ligero) y otras dependencias
 RUN pip3 install --no-cache-dir --break-system-packages \
-    torch==2.0.1 \
-    torchaudio==2.0.2 \
+    torch==2.0.1+cpu \
+    torchaudio==2.0.2+cpu \
+    -f https://download.pytorch.org/whl/torch_stable.html \
+    && pip3 install --no-cache-dir --break-system-packages \
     pydub==0.25.1 \
-    numpy==1.24.3
+    numpy==1.24.3 \
+    && rm -rf /root/.cache/pip
 
 # Crear directorio de trabajo
 WORKDIR /app
