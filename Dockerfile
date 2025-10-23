@@ -41,4 +41,4 @@ RUN mkdir -p /app/temp \
 EXPOSE 3000
 
 # Comando de inicio
-CMD ["node", "src/index.js"]
+CMD ["node", "src/startup.js"]
