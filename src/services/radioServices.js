@@ -1,6 +1,25 @@
-// src/services/radioServices.js
 import { query, run, get } from '../db/queryHelper.js';
 import { BASE_URL } from '../utils/config.js';
+
+// ==========================================
+// HELPER: Manejar URLs completas o relativas
+// ==========================================
+/**
+ * ✅ CORRECCIÓN CRÍTICA: 
+ * Las URLs de R2 ya vienen completas de la DB
+ * Las URLs locales legacy vienen relativas
+ */
+const getFullUrl = (url) => {
+  if (!url) return null;
+  
+  // Si ya es una URL completa (R2 o CDN), devolverla tal cual
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  
+  // Si es relativa (legacy local), concatenar con BASE_URL
+  return `${BASE_URL}${url}`;
+};
 
 // ==========================================
 // GET NEXT SONG
@@ -38,25 +57,34 @@ export const getNextSong = async (artistId = null) => {
   const row = await get(sql, params);
 
   if (row) {
+    // ✅ CORREGIDO: Usar getFullUrl() en lugar de concatenar siempre
     const song = {
       id: row.id,
       title: row.title,
-      audioUrl: `${BASE_URL}${row.audio_url}`,
-      coverImageUrl: row.cover_image_url ? `${BASE_URL}${row.cover_image_url}` : null,
+      audioUrl: getFullUrl(row.audio_url),
+      coverImageUrl: getFullUrl(row.cover_image_url),
       duration: row.duration,
-      voiceTimestampsUrl: row.voice_timestamps_url ? 
-        `${BASE_URL}${row.voice_timestamps_url}` : null,
-      waveformUrl: `${BASE_URL}${row.waveform_url}`,
-      spotifyId: row.spotify_id || null,
-      youtubeId: row.youtube_id || null,
+      voiceTimestampsUrl: getFullUrl(row.voice_timestamps_url),
+      waveformUrl: getFullUrl(row.waveform_url),
+      spotifyUrl: row.spotify_id ? `https://open.spotify.com/track/${row.spotify_id}` : null,
+      youtubeUrl: row.youtube_id ? `https://www.youtube.com/watch?v=${row.youtube_id}` : null,
       artist: {
         id: row.artist_id,
         name: row.artist_name,
         genre: row.artist_genre,
-        imageUrl: row.artist_image_url,
+        imageUrl: getFullUrl(row.artist_image_url),
         bio: row.artist_bio
       }
     };
+    
+    // Log para debugging
+    console.log('[RadioService] Song URLs:', {
+      audio: song.audioUrl?.substring(0, 60) + '...',
+      cover: song.coverImageUrl?.substring(0, 60) + '...',
+      waveform: song.waveformUrl?.substring(0, 60) + '...',
+      timestamps: song.voiceTimestampsUrl?.substring(0, 60) + '...'
+    });
+    
     return song;
   }
 
