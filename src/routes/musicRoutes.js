@@ -41,13 +41,13 @@ async function musicRoutes(fastify, options) {
       const artist = await get(
         `SELECT u.id, u.bio, a.name, a.genre, a.image_url, 
                 COUNT(ufa.user_id) as followers 
-         FROM users u
-         JOIN artists a ON u.id = a.user_id
-         LEFT JOIN user_follows_artist ufa ON a.id = ufa.artist_id 
-         WHERE u.id = ? 
-         GROUP BY u.id`,
+        FROM users u
+        JOIN artists a ON u.id = a.user_id
+        LEFT JOIN user_follows_artist ufa ON a.id = ufa.artist_id 
+        WHERE u.id = ? 
+        GROUP BY u.id, u.bio, a.name, a.genre, a.image_url`,
         [userId]
-      );
+        );
 
       if (!artist) {
         return reply.status(404).send({ message: 'Artista no encontrado' });
