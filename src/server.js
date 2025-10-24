@@ -25,16 +25,17 @@ const server = fastify({
   logger: true
 });
 
-// ✅ CORRECCIÓN: Configurar compresión selectiva
+// ✅ NUEVA CONFIGURACIÓN: Compresión inteligente
 server.register(fastifyCompress, {
-  global: false, // ❌ NO comprimir globalmente
-  threshold: 1024,
-  encodings: ['gzip', 'deflate']
+  global: true, // ✅ Habilitar globalmente
+  threshold: 1024, // Solo comprimir respuestas > 1KB
+  encodings: ['gzip', 'deflate', 'br'], // Añadir Brotli
+  customTypes: /^application\/json$|^text\// // Solo JSON y texto
 });
 
-// ✅ NUEVO: Hook para comprimir solo rutas específicas
+// ✅ HOOK MEJORADO: Excluir rutas problemáticas específicas
 server.addHook('onSend', async (request, reply, payload) => {
-  // Lista de rutas que NO deben comprimirse (causan problemas en Android)
+  // Rutas que causan problemas con compresión en Android
   const noCompressRoutes = [
     '/api/job-status/',
     '/api/artist/songs',
@@ -47,11 +48,24 @@ server.addHook('onSend', async (request, reply, payload) => {
   );
   
   if (shouldNotCompress) {
+    // Eliminar headers de compresión
     reply.removeHeader('Content-Encoding');
     reply.removeHeader('Vary');
+    
+    console.log(`[Compression] Deshabilitada para: ${request.url}`);
   }
   
   return payload;
+});
+
+// ✅ OPCIONAL: Log de compresión para debugging
+server.addHook('onResponse', async (request, reply) => {
+  const contentEncoding = reply.getHeader('content-encoding');
+  const contentLength = reply.getHeader('content-length');
+  
+  if (contentEncoding) {
+    console.log(`[Compression] ${request.url} - ${contentEncoding} - ${contentLength} bytes`);
+  }
 });
 
 server.register(corsPlugin)
