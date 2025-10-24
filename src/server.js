@@ -25,23 +25,32 @@ const server = fastify({
   logger: true
 });
 
-// ✅ SOLUCIÓN: Configurar fastifyCompress con opciones específicas
+// ✅ CORRECCIÓN: Configurar compresión selectiva
 server.register(fastifyCompress, {
-  global: true,
-  threshold: 1024, // Solo comprimir respuestas > 1KB
-  encodings: ['gzip', 'deflate'],
-  // ✅ NO comprimir JSON responses pequeñas como job-status
-  customTypes: /^text\/|application\/json$/,
-  // ✅ Hook para deshabilitar compresión en rutas específicas
-  requestEncodings: ['gzip', 'deflate']
+  global: false, // ❌ NO comprimir globalmente
+  threshold: 1024,
+  encodings: ['gzip', 'deflate']
 });
 
-// ✅ ALTERNATIVA: Hook global para deshabilitar compresión en job-status
+// ✅ NUEVO: Hook para comprimir solo rutas específicas
 server.addHook('onSend', async (request, reply, payload) => {
-  // Deshabilitar compresión para /job-status
-  if (request.url.includes('/job-status/')) {
+  // Lista de rutas que NO deben comprimirse (causan problemas en Android)
+  const noCompressRoutes = [
+    '/api/job-status/',
+    '/api/artist/songs',
+    '/api/artist/profile',
+    '/api/radio/next-song'
+  ];
+  
+  const shouldNotCompress = noCompressRoutes.some(route => 
+    request.url.includes(route)
+  );
+  
+  if (shouldNotCompress) {
     reply.removeHeader('Content-Encoding');
+    reply.removeHeader('Vary');
   }
+  
   return payload;
 });
 
