@@ -25,8 +25,26 @@ const server = fastify({
   logger: true
 });
 
-// Registrar plugins y rutas en cadena para asegurar el orden
-server.register(fastifyCompress); 
+// ✅ SOLUCIÓN: Configurar fastifyCompress con opciones específicas
+server.register(fastifyCompress, {
+  global: true,
+  threshold: 1024, // Solo comprimir respuestas > 1KB
+  encodings: ['gzip', 'deflate'],
+  // ✅ NO comprimir JSON responses pequeñas como job-status
+  customTypes: /^text\/|application\/json$/,
+  // ✅ Hook para deshabilitar compresión en rutas específicas
+  requestEncodings: ['gzip', 'deflate']
+});
+
+// ✅ ALTERNATIVA: Hook global para deshabilitar compresión en job-status
+server.addHook('onSend', async (request, reply, payload) => {
+  // Deshabilitar compresión para /job-status
+  if (request.url.includes('/job-status/')) {
+    reply.removeHeader('Content-Encoding');
+  }
+  return payload;
+});
+
 server.register(corsPlugin)
       .register(authPlugin)
       .register(authRoutes, { prefix: '/api' });
@@ -70,6 +88,7 @@ server.register(verificationRoutes, { prefix: '/api/verification' });
 console.log('Servidor: Rutas de verificación de artistas registradas en /api/verification');
 
 server.register(adminVerificationRoutes, { prefix: '/api/admin/verifications' });
+
 // Ruta de prueba
 server.get('/', async (request, reply) => {
   return { hello: 'world', message: 'Backend Fastify de Merfame activo.' };
