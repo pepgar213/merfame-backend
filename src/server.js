@@ -25,48 +25,9 @@ const server = fastify({
   logger: true
 });
 
-// ✅ NUEVA CONFIGURACIÓN: Compresión inteligente
-server.register(fastifyCompress, {
-  global: true, // ✅ Habilitar globalmente
-  threshold: 1024, // Solo comprimir respuestas > 1KB
-  encodings: ['gzip', 'deflate', 'br'], // Añadir Brotli
-  customTypes: /^application\/json$|^text\// // Solo JSON y texto
-});
-
-// ✅ HOOK MEJORADO: Excluir rutas problemáticas específicas
-server.addHook('onSend', async (request, reply, payload) => {
-  // Rutas que causan problemas con compresión en Android
-  const noCompressRoutes = [
-    '/api/job-status/',
-    '/api/artist/songs',
-    '/api/artist/profile',
-    '/api/radio/next-song'
-  ];
-  
-  const shouldNotCompress = noCompressRoutes.some(route => 
-    request.url.includes(route)
-  );
-  
-  if (shouldNotCompress) {
-    // Eliminar headers de compresión
-    reply.removeHeader('Content-Encoding');
-    reply.removeHeader('Vary');
-    
-    console.log(`[Compression] Deshabilitada para: ${request.url}`);
-  }
-  
-  return payload;
-});
-
-// ✅ OPCIONAL: Log de compresión para debugging
-server.addHook('onResponse', async (request, reply) => {
-  const contentEncoding = reply.getHeader('content-encoding');
-  const contentLength = reply.getHeader('content-length');
-  
-  if (contentEncoding) {
-    console.log(`[Compression] ${request.url} - ${contentEncoding} - ${contentLength} bytes`);
-  }
-});
+// ✅ SOLUCIÓN: Compresión COMPLETAMENTE DESHABILITADA para evitar errores en Android
+// NO registrar el plugin de compresión para las rutas de API
+// Si en el futuro quieres habilitar compresión, hazlo SOLO para archivos estáticos
 
 server.register(corsPlugin)
       .register(authPlugin)
@@ -79,6 +40,7 @@ server.register(fastifyMultipart, {
   }
 });
 
+// ✅ Archivos estáticos SIN compresión también (por consistencia)
 server.register(fastifyStatic, {
   root: join(__dirname, '..', 'public'),
   prefix: '/',
@@ -125,6 +87,7 @@ const startServer = async () => {
 
     // Iniciar el servidor
     await server.listen({ port: PORT, host: '0.0.0.0' });
+    console.log('✅ Servidor iniciado SIN compresión (para compatibilidad con Android)');
   } catch (err) {
     server.log.error(err);
     process.exit(1);
