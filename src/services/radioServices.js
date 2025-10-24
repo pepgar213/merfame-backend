@@ -1,3 +1,4 @@
+// src/services/radioServices.js
 import { query, run, get } from '../db/queryHelper.js';
 import { BASE_URL } from '../utils/config.js';
 
@@ -57,7 +58,8 @@ export const getNextSong = async (artistId = null) => {
   const row = await get(sql, params);
 
   if (row) {
-    // ✅ CORREGIDO: Usar getFullUrl() en lugar de concatenar siempre
+    // ✅ CORREGIDO: Enviar IDs en lugar de URLs completas
+    // Android espera spotifyId y youtubeId para construir las URLs
     const song = {
       id: row.id,
       title: row.title,
@@ -66,8 +68,11 @@ export const getNextSong = async (artistId = null) => {
       duration: row.duration,
       voiceTimestampsUrl: getFullUrl(row.voice_timestamps_url),
       waveformUrl: getFullUrl(row.waveform_url),
-      spotifyUrl: row.spotify_id ? `https://open.spotify.com/track/${row.spotify_id}` : null,
-      youtubeUrl: row.youtube_id ? `https://www.youtube.com/watch?v=${row.youtube_id}` : null,
+      
+      // ✅ NUEVO: Enviar IDs para que Android construya las URLs
+      spotifyId: row.spotify_id || null,
+      youtubeId: row.youtube_id || null,
+      
       artist: {
         id: row.artist_id,
         name: row.artist_name,
@@ -78,7 +83,11 @@ export const getNextSong = async (artistId = null) => {
     };
     
     // Log para debugging
-    console.log('[RadioService] Song URLs:', {
+    console.log('[RadioService] Song data:', {
+      id: song.id,
+      title: song.title,
+      spotifyId: song.spotifyId || 'N/A',
+      youtubeId: song.youtubeId || 'N/A',
       audio: song.audioUrl?.substring(0, 60) + '...',
       cover: song.coverImageUrl?.substring(0, 60) + '...',
       waveform: song.waveformUrl?.substring(0, 60) + '...',
