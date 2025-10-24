@@ -519,4 +519,4 @@ async function musicRoutes(fastify, options) {
   });
 }
 
-export default fp(musicRoutes);
+export default musicRoutes;
