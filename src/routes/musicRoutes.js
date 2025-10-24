@@ -74,47 +74,47 @@ async function musicRoutes(fastify, options) {
   // RUTA: Obtener canciones del artista
   // ==========================================
   fastify.get('/artist/songs', {
-    preValidation: [fastify.authenticate]
-  }, async (request, reply) => {
-    try {
-      const userId = request.user.id;
+  preValidation: [fastify.authenticate]
+}, async (request, reply) => {
+  try {
+    const userId = request.user.id;
 
-      // Obtener el artist_id del userId
-      const artist = await get(
-        `SELECT id FROM artists WHERE user_id = ?`,
-        [userId]
-      );
+    // Obtener el artist_id del userId
+    const artist = await get(
+      `SELECT id FROM artists WHERE user_id = ?`,
+      [userId]
+    );
 
-      if (!artist) {
-        return reply.status(404).send({ message: 'Artista no encontrado' });
-      }
-
-      // Obtener las canciones del artista
-      const songs = await query(
-        `SELECT id, title, audio_url, cover_image_url, duration, waveform_url, voice_timestamps_url
-         FROM music_tracks 
-         WHERE artist_id = ?
-         ORDER BY id DESC`,
-        [artist.id]
-      );
-
-      // Las URLs ya vienen completas de R2, solo formatear la respuesta
-      const formattedSongs = songs.map(song => ({
-        id: song.id,
-        title: song.title,
-        coverImageUrl: song.cover_image_url || null, // URL completa de R2
-        audioUrl: song.audio_url || null, // URL completa de R2
-        waveformUrl: song.waveform_url || null, // URL completa de R2
-        voiceTimestampsUrl: song.voice_timestamps_url || null, // URL completa de R2
-        duration: song.duration
-      }));
-
-      reply.send(formattedSongs);
-    } catch (error) {
-      console.error('Error obteniendo canciones del artista:', error);
-      reply.status(500).send({ error: error.message });
+    if (!artist) {
+      return reply.status(404).send({ message: 'Artista no encontrado' });
     }
-  });
+
+    // Obtener las canciones del artista
+    const songs = await query(
+      `SELECT id, title, audio_url, cover_image_url, duration, waveform_url, voice_timestamps_url
+       FROM music_tracks 
+       WHERE artist_id = ?
+       ORDER BY id DESC`,
+      [artist.id]
+    );
+
+    // ✅ CORRECCIÓN: Usar coverUrl en lugar de coverImageUrl
+    const formattedSongs = songs.map(song => ({
+      id: song.id,
+      title: song.title,
+      coverUrl: song.cover_image_url || null, // ✅ CAMBIADO
+      audioUrl: song.audio_url || null,
+      waveformUrl: song.waveform_url || null,
+      voiceTimestampsUrl: song.voice_timestamps_url || null,
+      duration: song.duration
+    }));
+
+    reply.send(formattedSongs);
+  } catch (error) {
+    console.error('Error obteniendo canciones del artista:', error);
+    reply.status(500).send({ error: error.message });
+  }
+});
 
   // ==========================================
   // RUTA: Subir canción (CON CLOUDFLARE R2)
