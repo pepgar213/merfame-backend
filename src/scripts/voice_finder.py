@@ -13,7 +13,7 @@ warnings.filterwarnings("ignore")
 
 # Configuración de parámetros optimizados
 TARGET_SR = 16000
-THRESHOLD = 0.75  # Reducido para mayor sensibilidad
+THRESHOLD = 0.70  # Reducido para mayor sensibilidad
 MIN_SEGMENT_DURATION = 0.2  # Reducido para capturar segmentos más cortos
 MIN_SILENCE_DURATION = 0.3  # Reducido para unir segmentos más cercanos
 SEGMENT_DURATION = 3  # Segmentos más cortos para mejor resolución
