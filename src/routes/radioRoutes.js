@@ -1,44 +1,36 @@
 // src/routes/radioRoutes.js
 import { getNextSong, likeSong, dislikeSong, followArtist, unfollowArtist } from '../services/radioServices.js';
-import zlib from 'zlib'; // Importar el módulo zlib para la compresión
-import { promisify } from 'util'; // Para usar zlib.gzip con async/await
 
-const gzip = promisify(zlib.gzip);
+// ❌ ELIMINAR ESTAS LÍNEAS (ya no necesitamos compresión manual)
+// import zlib from 'zlib';
+// import { promisify } from 'util';
+// const gzip = promisify(zlib.gzip);
 
 async function radioRoutes (fastify, options) {
-  // Ruta para obtener la siguiente canción
+  // ✅ CORREGIDO: Enviar JSON sin comprimir
   fastify.get('/next-song', async (request, reply) => {
     try {
       const artistId = request.query.artistId;
       const song = await getNextSong(artistId);
 
       if (song) {
-        // Convertir el objeto de la canción a una cadena JSON
-        const jsonString = JSON.stringify(song);
-        
-        // Comprimir la cadena JSON con Gzip de forma asíncrona
-        const compressedData = await gzip(jsonString);
-
-        // Establecer el encabezado para informar al cliente que el contenido está comprimido
-        reply.header('Content-Encoding', 'gzip');
-        
-        // Enviar los datos comprimidos
-        reply.code(200).send(compressedData);
+        // ✅ Enviar directamente como JSON (sin compresión manual)
+        reply.code(200).send(song);
       } else {
         reply.code(404).send({ message: 'No hay canciones disponibles.' });
       }
     } catch (error) {
-      reply.code(error.statusCode || 500).send({ message: error.message || 'Error interno del servidor al obtener canción.' });
+      reply.code(error.statusCode || 500).send({ 
+        message: error.message || 'Error interno del servidor al obtener canción.' 
+      });
     }
   });
 
-  // El resto de las rutas no se modifican, ya que manejan payloads pequeños.
+  // Las demás rutas (like-song, dislike-song, etc.) permanecen igual
   fastify.post('/like-song', {
     preHandler: [fastify.authenticate]
   }, async (request, reply) => {
-    const {
-      songId
-    } = request.body;
+    const { songId } = request.body;
     const userId = request.user.id;
 
     if (!songId) {
@@ -61,9 +53,7 @@ async function radioRoutes (fastify, options) {
   fastify.post('/dislike-song', {
     preHandler: [fastify.authenticate]
   }, async (request, reply) => {
-    const {
-      songId
-    } = request.body;
+    const { songId } = request.body;
     const userId = request.user.id;
 
     if (!songId) {
@@ -86,9 +76,7 @@ async function radioRoutes (fastify, options) {
   fastify.post('/follow-artist', {
     preHandler: [fastify.authenticate]
   }, async (request, reply) => {
-    const {
-      artistId
-    } = request.body;
+    const { artistId } = request.body;
     const userId = request.user.id;
 
     if (!artistId) {
@@ -111,9 +99,7 @@ async function radioRoutes (fastify, options) {
   fastify.post('/unfollow-artist', {
     preHandler: [fastify.authenticate]
   }, async (request, reply) => {
-    const {
-      artistId
-    } = request.body;
+    const { artistId } = request.body;
     const userId = request.user.id;
 
     if (!artistId) {
